@@ -1,0 +1,626 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: Arial, Helvetica, sans-serif;
+    background: #ffffff;
+    color: #222;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    overflow-x: hidden;
+}
+
+.air-pollution-page .sub-nav {
+    width: 100%;
+    background-color: #65b32e;
+}
+
+.air-pollution-page .nav-links2 {
+    width: 90%;
+    max-width: 1100px;
+    margin: 0 auto;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 30px;
+    flex-wrap: nowrap;
+}
+
+.air-pollution-page .nav-links2 a {
+    text-decoration: none;
+    font-size: 13px;
+    font-weight: 700;
+    color: #ffffff;
+    padding: 14px 0;
+    letter-spacing: 0.3px;
+    white-space: nowrap;
+    display: inline-block;
+    transition: 0.3s;
+}
+
+.air-pollution-page .nav-links2 a:hover {
+    transform: scale(1.15);
+}
+
+.air-pollution-page .nav-links2 a.active {
+    color: #1b5e20;
+}
+
+.air-pollution-page .dashboard {
+    width: 100%;
+    padding: 20px;
+    background-color: #f5f8f3;
+}
+
+.air-pollution-page .overview {
+    width: 100%;
+    padding: 20px;
+    background-color: white;
+    border: 1px solid #dddddd;
+    border-radius: 0;
+}
+
+.air-pollution-page .head {
+    width: 100%;
+    padding-bottom: 10px;
+    margin-bottom: 20px;
+    border-bottom: 2px solid #65b32e;
+}
+
+.air-pollution-page .head h1 {
+    font-size: 24px;
+    color: #124500;
+}
+
+.air-pollution-page .main {
+    width: 100%;
+    display: flex;
+    gap: 20px;
+}
+
+.air-pollution-page .left {
+    width: 35%;
+}
+
+.air-pollution-page .right {
+    width: 65%;
+}
+
+.air-pollution-page .status {
+    width: 100%;
+    padding: 25px;
+    background-color: #e5f3df;
+    border: 2px solid #65b32e;
+    border-left: 6px solid #65b32e;
+    border-radius: 0;
+    margin-bottom: 15px;
+}
+
+.air-pollution-page .status h2 {
+    font-size: 15px;
+    color: #40533b;
+}
+
+.air-pollution-page .status .unit {
+    margin-top: 15px;
+    font-size: 38px;
+    color: #3f8c20;
+    font-weight: bold;
+}
+
+.air-pollution-page .box1,
+.air-pollution-page .box2,
+.air-pollution-page .box3,
+.air-pollution-page .box4,
+.air-pollution-page .box5,
+.air-pollution-page .box51 {
+    padding: 18px;
+    background-color: #f4f8f1;
+    border: 1px solid #cbdcc3;
+    border-radius: 0;
+}
+
+.air-pollution-page .box1,
+.air-pollution-page .box2 {
+    margin-bottom: 15px;
+}
+
+.air-pollution-page .box3 {
+    width: 48%;
+    display: inline-block;
+    vertical-align: top;
+    margin-right: 4%;
+    margin-bottom: 15px;
+}
+
+.air-pollution-page .box4 {
+    width: 48%;
+    display: inline-block;
+    vertical-align: top;
+    margin-bottom: 15px;
+}
+
+.air-pollution-page .box5 {
+    width: 48%;
+    display: inline-block;
+    vertical-align: top;
+    margin-right: 4%;
+}
+
+.air-pollution-page .box51 {
+    width: 48%;
+    display: inline-block;
+    vertical-align: top;
+}
+
+.air-pollution-page .box1 h2,
+.air-pollution-page .box2 h2,
+.air-pollution-page .box3 h2,
+.air-pollution-page .box4 h2,
+.air-pollution-page .box5 h2,
+.air-pollution-page .box6 h2,
+.air-pollution-page .box7 h2,
+.air-pollution-page .box8 h2,
+.air-pollution-page .box9 h2,
+.air-pollution-page .box10 h2,
+.air-pollution-page .box11 h2,
+.air-pollution-page .box12 h2,
+.air-pollution-page .box13 h2, 
+.air-pollution-page .box51 h2 {
+    font-size: 14px;
+    color: #40533b;
+}
+
+.air-pollution-page .unit {
+    margin-top: 10px;
+    font-size: 30px;
+    color: #65b32e;
+    font-weight: bold;
+}
+
+.air-pollution-page .t1 {
+    margin-top: 5px;
+    color: #666666;
+    font-size: 13px;
+}
+
+.air-pollution-page .temp,
+.air-pollution-page .hum {
+    width: 100%;
+    display: flex;
+    gap: 15px;
+    margin-top: 20px;
+}
+
+.air-pollution-page .temp .box6,
+.air-pollution-page .temp .box7,
+.air-pollution-page .temp .box8,
+.air-pollution-page .temp .box9,
+.air-pollution-page .hum .box10,
+.air-pollution-page .hum .box11,
+.air-pollution-page .hum .box12,
+.air-pollution-page .hum .box13 {
+    width: 25%;
+    padding: 18px;
+    margin: 0;
+    background-color: white;
+    border: 1px solid #cbdcc3;
+    border-radius: 0;
+}
+
+.air-pollution-page .dashboard2 {
+    width: 100%;
+    padding: 20px;
+    background-color: #f5f8f3;
+}
+
+.air-pollution-page .controls {
+    width: 100%;
+    padding: 20px;
+    background-color: white;
+    border: 1px solid #dddddd;
+    border-radius: 0;
+}
+
+.air-pollution-page .panel {
+    width: 100%;
+    display: flex;
+    gap: 15px;
+    padding: 0;
+    margin: 0;
+    background-color: transparent;
+}
+
+.air-pollution-page .exn {
+    width: 30%;
+    padding: 18px;
+    background-color: white;
+    border: 1px solid #cbdcc3;
+    border-radius: 0;
+}
+
+.air-pollution-page .exn h2 {
+    font-size: 14px;
+    color: #40533b;
+}
+
+.air-pollution-page .exn .exf {
+    margin-top: 10px;
+    font-size: 30px;
+    color: #65b32e;
+    font-weight: bold;
+}
+
+.air-pollution-page .modes,
+.air-pollution-page .filters {
+    width: 70%;
+    padding: 18px;
+    background-color: white;
+    border: 1px solid #cbdcc3;
+    border-radius: 0;
+}
+
+.air-pollution-page .modes h2,
+.air-pollution-page .filters h2 {
+    font-size: 14px;
+    color: #40533b;
+}
+
+.air-pollution-page .m1 {
+    display: flex;
+    gap: 5px;
+    margin-top: 10px;
+}
+
+.air-pollution-page .m1 input {
+    display: none;
+}
+
+.air-pollution-page .m1 label {
+    padding: 10px 18px;
+    border-radius: 0;
+    cursor: pointer;
+    color: #222;
+    border: 1px solid transparent;
+}
+
+.air-pollution-page .m1 input:checked + label {
+    background: #65b32e;
+    color: white;
+    border: 1px solid #4d9021;
+}
+
+.air-pollution-page .graphs {
+    width: 100%;
+    padding: 20px;
+    background-color: #f5f8f3;
+}
+
+.air-pollution-page .glayout {
+    width: 100%;
+    padding: 20px;
+    background-color: white;
+    border: 1px solid #dddddd;
+    border-radius: 0;
+}
+
+.air-pollution-page .gly1, 
+.air-pollution-page .gly2 {
+    padding: 10px 0;
+    display: flex;
+    gap: 10px;
+}
+
+.air-pollution-page .c1, 
+.air-pollution-page .c2, 
+.air-pollution-page .c3, 
+.air-pollution-page .c5, 
+.air-pollution-page .c6, 
+.air-pollution-page .c7 {
+    flex: 1;
+    height: 300px;
+    background-color: white;
+    border: 1px solid #cbdcc3;
+    border-radius: 0;
+    position: relative;
+    box-sizing: border-box;
+    padding: 10px;
+}
+
+.air-pollution-page .c4 {
+    width: 100%;
+    height: 400px;
+    background-color: white;
+    border: 1px solid #cbdcc3;
+    border-radius: 0;
+    position: relative;
+    box-sizing: border-box;
+    padding: 10px;
+    margin-top: 10px;
+    margin-bottom: 10px;
+}
+
+.air-pollution-page .c1 canvas,
+.air-pollution-page .c2 canvas,
+.air-pollution-page .c3 canvas,
+.air-pollution-page .c4 canvas,
+.air-pollution-page .c5 canvas,
+.air-pollution-page .c6 canvas,
+.air-pollution-page .c7 canvas {
+    width: 100% !important;
+    height: 100% !important;
+    display: block;
+}
+
+.air-pollution-page .alert-section-wrapper {
+    width: 100%;
+    padding: 0 20px 20px 20px;
+    background-color: #f5f8f3;
+}
+
+.air-pollution-page .air-alert-banner {
+    width: 100%;
+    margin-bottom: 20px;
+    padding: 18px 24px;
+    background: linear-gradient(135deg, #e5f3df 0%, #d5edd0 100%);
+    border: 2px solid #65b32e;
+    border-left: 6px solid #65b32e;
+    border-radius: 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    animation: fadeIn 0.3s ease-in-out;
+}
+
+.air-pollution-page .alert-banner-left {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.air-pollution-page .alert-badge-icon {
+    font-size: 28px;
+    background: white;
+    padding: 8px 12px;
+    border-radius: 0;
+    border: 1px solid #cbdcc3;
+}
+
+.air-pollution-page .alert-banner-text h3 {
+    font-size: 16px;
+    font-weight: 700;
+    color: #124500;
+    margin-bottom: 4px;
+}
+
+.air-pollution-page .alert-banner-text p {
+    font-size: 13px;
+    color: #335522;
+    margin: 0;
+}
+
+.air-pollution-page .alert-banner-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.air-pollution-page .alert-status-pill {
+    padding: 6px 14px;
+    background: #65b32e;
+    color: white;
+    font-size: 12px;
+    font-weight: 700;
+    border-radius: 0;
+    border: 1px solid #4d9021;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.air-pollution-page .alert-close-btn {
+    background: transparent;
+    border: 1px solid transparent;
+    font-size: 18px;
+    color: #40533b;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 0;
+    transition: 0.2s;
+}
+
+.air-pollution-page .alert-close-btn:hover {
+    background: rgba(0, 0, 0, 0.1);
+    border-color: #cbdcc3;
+}
+
+.air-pollution-page .insights {
+    width: 100%;
+    padding: 0;
+    background-color: transparent;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+}
+
+.air-pollution-page .events-panel,
+.air-pollution-page .intelligence-panel {
+    padding: 20px;
+    background-color: white;
+    border: 1px solid #dddddd;
+    border-radius: 0;
+}
+
+.air-pollution-page .events-panel .head,
+.air-pollution-page .intelligence-panel .head {
+    margin-bottom: 15px;
+}
+
+.air-pollution-page .events-list {
+    max-height: 420px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding-right: 4px;
+}
+
+.air-pollution-page .event-item {
+    padding: 14px 16px;
+    background-color: #f4f8f1;
+    border: 1px solid #cbdcc3;
+    border-left: 4px solid #65b32e;
+    border-radius: 0;
+    transition: border-color 0.2s, transform 0.2s, background-color 0.2s;
+}
+
+.air-pollution-page .event-item:hover {
+    border-color: #65b32e;
+    background-color: #edf6e9;
+    transform: translateX(2px);
+}
+
+.air-pollution-page .event-item-top {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.air-pollution-page .event-icon {
+    font-size: 20px;
+    line-height: 1;
+}
+
+.air-pollution-page .event-item-text {
+    display: flex;
+    flex-direction: column;
+}
+
+.air-pollution-page .event-title {
+    font-size: 14px;
+    font-weight: bold;
+    color: #222222;
+    letter-spacing: 0.2px;
+}
+
+.air-pollution-page .event-time {
+    font-size: 11px;
+    color: #888888;
+    margin-top: 2px;
+}
+
+.air-pollution-page .event-details {
+    list-style: none;
+    margin-top: 8px;
+    padding-left: 30px;
+    font-size: 13px;
+    color: #444444;
+}
+
+.air-pollution-page .event-details li {
+    padding: 2px 0;
+}
+
+.air-pollution-page .event-item.level-low {
+    border-left-color: #3f8c20;
+    background-color: #eef7e8;
+}
+
+.air-pollution-page .event-item.level-medium {
+    border-left-color: #e0a327;
+    background-color: #fdf5e2;
+}
+
+.air-pollution-page .event-item.level-high {
+    border-left-color: #d63636;
+    background-color: #fbeaea;
+}
+
+.air-pollution-page .event-item.level-positive {
+    border-left-color: #2f80c9;
+    background-color: #e9f2fb;
+}
+
+.air-pollution-page .intelligence-list {
+    list-style: none;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.air-pollution-page .intelligence-list li {
+    padding: 12px 14px;
+    background-color: #f4f8f1;
+    border: 1px solid #cbdcc3;
+    border-left: 3px solid #65b32e;
+    border-radius: 0;
+    font-size: 13px;
+    color: #333333;
+    line-height: 1.5;
+    transition: border-color 0.2s, transform 0.2s, background-color 0.2s;
+}
+
+.air-pollution-page .intelligence-list li:hover {
+    border-color: #65b32e;
+    background-color: #edf6e9;
+    transform: translateX(2px);
+}
+
+.air-pollution-page .downc {
+    width: 100%;
+    padding: 20px;
+    background-color: #f5f8f3;
+}
+
+.air-pollution-page .dlayout {
+    width: 100%;
+    padding: 20px;
+    background-color: white;
+    border: 1px solid #dddddd;
+    border-radius: 0;
+}
+
+.air-pollution-page .dlayout button {
+    padding: 10px 20px;
+    margin-right: 10px;
+    border: 1px solid #40533b;
+    border-radius: 0;
+    background-color: #40533b;
+    color: white;
+    cursor: pointer;
+    transition: background-color 0.2s, border-color 0.2s;
+}
+
+.air-pollution-page .dlayout button:hover {
+    background-color: #33452f;
+    border-color: #273724;
+}
+
+@media (max-width: 900px) {
+    .air-pollution-page .main,
+    .air-pollution-page .temp,
+    .air-pollution-page .hum,
+    .air-pollution-page .panel,
+    .air-pollution-page .gly1,
+    .air-pollution-page .gly2,
+    .air-pollution-page .insights {
+        flex-direction: column;
+        grid-template-columns: 1fr;
+    }
+
+    .air-pollution-page .exn,
+    .air-pollution-page .modes,
+    .air-pollution-page .filters {
+        width: 100%;
+    }
+
+    .air-pollution-page .air-alert-banner {
+        flex-direction: column;
+        gap: 12px;
+        align-items: flex-start;
+    }
+}

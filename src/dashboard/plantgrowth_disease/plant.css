@@ -1,0 +1,1439 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: Arial, Helvetica, sans-serif;
+    background: #ffffff;
+    color: #222;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    overflow-x: hidden;
+}
+
+.plant-health-page .sub-nav {
+    width: 100%;
+    background-color: #65b32e;
+}
+
+.plant-health-page .nav-links2 {
+    width: 90%;
+    max-width: 1100px;
+    margin: 0 auto;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 30px;
+    flex-wrap: nowrap;
+}
+
+.plant-health-page .nav-links2 a {
+    text-decoration: none;
+    font-size: 13px;
+    font-weight: 700;
+    color: #ffffff;
+    padding: 14px 0;
+    letter-spacing: 0.3px;
+    white-space: nowrap;
+    display: inline-block;
+    transition: 0.3s;
+}
+
+.plant-health-page .nav-links2 a:hover {
+    transform: scale(1.15);
+}
+
+.plant-health-page .nav-links2 a.active {
+    color: #1b5e20;
+}
+
+.plant-health-page .ai-model {
+    width: 100%;
+    padding: 20px;
+    background-color: #f5f8f3;
+}
+
+.plant-health-page .ai-panels {
+    width: 100%;
+    padding: 20px;
+    background-color: white;
+    border: 1px solid #dddddd;
+    border-radius: 0;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 18px;
+}
+
+.plant-health-page .cam-panel {
+    border: 2px solid #cbdcc3;
+    border-radius: 0;
+    padding: 18px;
+    background-color: #f4f8f1;
+    transition: border-color 0.25s, transform 0.25s;
+}
+
+.plant-health-page .cam-panel:hover {
+    border-color: #65b32e;
+    transform: translateY(-2px);
+}
+
+.plant-health-page .cam-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+
+.plant-health-page .cam-panel h2 {
+    font-size: 13px;
+    letter-spacing: 0.4px;
+    color: #40533b;
+}
+
+.plant-health-page .status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    border-radius: 0;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+}
+
+.plant-health-page .status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 0;
+    display: inline-block;
+}
+
+.plant-health-page .pill-online {
+    background-color: #e5f3df;
+    color: #2f6d16;
+}
+
+.plant-health-page .pill-online .status-dot {
+    background-color: #3f8c20;
+    animation: pd-pulse 1.6s infinite;
+}
+
+.plant-health-page .pill-offline {
+    background-color: #fbe6e6;
+    color: #a11f1f;
+}
+
+.plant-health-page .pill-offline .status-dot {
+    background-color: #d63636;
+}
+
+.plant-health-page .pill-idle {
+    background-color: #eef1ec;
+    color: #666666;
+}
+
+.plant-health-page .pill-idle .status-dot {
+    background-color: #999999;
+}
+
+.plant-health-page .pill-upload {
+    background-color: #e6f0fb;
+    color: #1c568f;
+}
+
+.plant-health-page .pill-upload .status-dot {
+    background-color: #2f80c9;
+}
+
+@keyframes pd-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+.plant-health-page .cam-frame,
+.plant-health-page .output-frame {
+    aspect-ratio: 16 / 9;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    background-color: #e5e9e2;
+    border-radius: 0;
+    position: relative;
+}
+
+.plant-health-page .cam-frame img,
+.plant-health-page .output-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.plant-health-page .ai-output-container {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: #1e251c;
+    border-radius: 0;
+    overflow: hidden;
+}
+
+.plant-health-page .ai-image-wrapper {
+    position: relative;
+    display: inline-block;
+    max-width: 100%;
+    max-height: 100%;
+    line-height: 0;
+}
+
+.plant-health-page .ai-image-wrapper .output-image {
+    max-width: 100%;
+    max-height: 210px;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+    display: block;
+    border-radius: 0;
+}
+
+.plant-health-page .ai-scanning-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.45);
+    backdrop-filter: blur(1.5px);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+    border-radius: 0;
+}
+
+.plant-health-page .scanner-laser-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 3px;
+    background: linear-gradient(90deg, transparent, #10b981, #22c55e, #10b981, transparent);
+    animation: pd-laser-scan 1.8s ease-in-out infinite alternate;
+}
+
+@keyframes pd-laser-scan {
+    0% { top: 2%; }
+    100% { top: 96%; }
+}
+
+.plant-health-page .scanning-hud-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(0, 0, 0, 0.85);
+    color: #4ade80;
+    padding: 6px 14px;
+    border-radius: 0;
+    font-size: 11px;
+    font-weight: 700;
+    border: 1px solid rgba(74, 222, 128, 0.6);
+    line-height: 1.2;
+}
+
+.plant-health-page .radar-ping {
+    width: 8px;
+    height: 8px;
+    border-radius: 0;
+    background-color: #22c55e;
+    animation: pd-pulse 1.2s infinite;
+}
+
+.plant-health-page .detection-image-container {
+    position: relative;
+    display: inline-block;
+    max-width: 100%;
+    max-height: 100%;
+    line-height: 0;
+}
+
+.plant-health-page .detection-image-container .output-image {
+    max-width: 100%;
+    max-height: 220px;
+    width: auto;
+    height: auto;
+    display: block;
+}
+
+.plant-health-page .yolo-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 10;
+}
+
+.plant-health-page .yolo-bounding-box {
+    position: absolute;
+    border: 2px solid #22c55e;
+    background: rgba(34, 197, 94, 0.12);
+    box-sizing: border-box;
+    pointer-events: none;
+    transition: all 0.2s ease;
+}
+
+.plant-health-page .yolo-box-label {
+    position: absolute;
+    bottom: 100%;
+    left: -2px;
+    background: #22c55e;
+    color: #ffffff;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 6px;
+    white-space: nowrap;
+    border-radius: 0;
+    line-height: 1.2;
+    transform: translateY(0);
+    letter-spacing: 0.3px;
+}
+
+.plant-health-page .upload-preview-wrapper {
+    position: relative;
+    width: 100%;
+    max-height: 150px;
+    border-radius: 0;
+    overflow: hidden;
+    background-color: #000;
+}
+
+.plant-health-page .upload-analyzing-badge {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    color: white;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.plant-health-page .upload-spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top-color: #ffffff;
+    border-radius: 50%;
+    animation: plant-spin 0.8s linear infinite;
+}
+
+@keyframes plant-spin {
+    to { transform: rotate(360deg); }
+}
+
+.plant-health-page .pill-analyzing {
+    background-color: #fef3c7;
+    color: #92400e;
+}
+
+.plant-health-page .pill-analyzing .status-dot {
+    background-color: #d97706;
+    animation: pd-pulse 1s infinite;
+}
+
+.plant-health-page .severity-indicator.sev-low { color: #16a34a; font-weight: 700; }
+.plant-health-page .severity-indicator.sev-medium { color: #d97706; font-weight: 700; }
+.plant-health-page .severity-indicator.sev-high { color: #ea580c; font-weight: 700; }
+.plant-health-page .text-hazard { color: #dc2626 !important; font-weight: 700; }
+
+.plant-health-page .plant-alert-banner.banner-high {
+    border-color: #fca5a5;
+    background-color: #fef2f2;
+}
+
+.plant-health-page .plant-alert-banner.banner-high h3 {
+    color: #991b1b;
+}
+
+.plant-health-page .plant-alert-banner.banner-low {
+    border-color: #bbf7d0;
+    background-color: #f0fdf4;
+}
+
+.plant-health-page .plant-alert-banner.banner-low h3 {
+    color: #166534;
+}
+
+.plant-health-page .cam-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    color: #888;
+    font-size: 13px;
+}
+
+.plant-health-page .placeholder-icon {
+    font-size: 26px;
+}
+
+.plant-health-page .upload-box {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+}
+
+.plant-health-page .upload-dropzone {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    cursor: pointer;
+    border: 2px dashed #9fc98a;
+    border-radius: 0;
+    background-color: #eaf4e3;
+    color: #40533b;
+    transition: background-color 0.2s, border-color 0.2s;
+}
+
+.plant-health-page .upload-dropzone:hover {
+    background-color: #e0f0d6;
+    border-color: #65b32e;
+}
+
+.plant-health-page .upload-label-text {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.plant-health-page .upload-hint {
+    font-size: 11px;
+    color: #779a6c;
+}
+
+.plant-health-page .upload-preview {
+    width: 100%;
+    max-height: 150px;
+    object-fit: cover;
+    border-radius: 0;
+}
+
+.plant-health-page .upload-actions {
+    width: 100%;
+    display: flex;
+    gap: 8px;
+}
+
+.plant-health-page .upload-label-secondary {
+    flex: 1;
+    text-align: center;
+    cursor: pointer;
+    padding: 8px 14px;
+    border: 1px solid #65b32e;
+    border-radius: 0;
+    color: #40533b;
+    font-size: 12px;
+    background-color: white;
+}
+
+.plant-health-page .upload-label-secondary:hover {
+    background-color: #e5f3df;
+}
+
+.plant-health-page .clear-upload {
+    flex: 1;
+    padding: 8px 14px;
+    border: 1px solid #40533b;
+    border-radius: 0;
+    background-color: #40533b;
+    color: white;
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.plant-health-page .clear-upload:hover {
+    background-color: #33452f;
+}
+
+.plant-health-page .dashboard {
+    width: 100%;
+    padding: 20px;
+    background-color: #f5f8f3;
+}
+
+.plant-health-page .overview {
+    width: 100%;
+    padding: 20px;
+    background-color: white;
+    border: 1px solid #dddddd;
+    border-radius: 0;
+}
+
+.plant-health-page .head {
+    width: 100%;
+    padding-bottom: 10px;
+    margin-bottom: 20px;
+    border-bottom: 2px solid #65b32e;
+}
+
+.plant-health-page .head h1 {
+    font-size: 24px;
+    color: #124500;
+}
+
+.plant-health-page .head .subtext {
+    margin-top: 4px;
+    font-size: 13px;
+    color: #666666;
+}
+
+.plant-health-page .main {
+    width: 100%;
+    display: flex;
+    gap: 20px;
+}
+
+.plant-health-page .left {
+    width: 35%;
+}
+
+.plant-health-page .right {
+    width: 65%;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-auto-rows: min-content;
+    gap: 15px;
+}
+
+.plant-health-page .status {
+    width: 100%;
+    padding: 25px;
+    background-color: #e5f3df;
+    border: 2px solid #65b32e;
+    border-left: 6px solid #65b32e;
+    border-radius: 0;
+    margin-bottom: 15px;
+}
+
+.plant-health-page .status h2 {
+    font-size: 15px;
+    color: #40533b;
+}
+
+.plant-health-page .status .unit {
+    margin-top: 15px;
+    font-size: 38px;
+    color: #3f8c20;
+    font-weight: bold;
+}
+
+.plant-health-page .box0,
+.plant-health-page .box1,
+.plant-health-page .box2,
+.plant-health-page .box3,
+.plant-health-page .box4,
+.plant-health-page .box5,
+.plant-health-page .box51 {
+    padding: 18px;
+    background-color: #f4f8f1;
+    border: 1px solid #cbdcc3;
+    border-radius: 0;
+    box-sizing: border-box;
+}
+
+.plant-health-page .box0,
+.plant-health-page .box1,
+.plant-health-page .box2 {
+    margin-bottom: 15px;
+}
+
+.plant-health-page .box4 {
+    width: auto;
+    margin-bottom: 0;
+}
+
+.plant-health-page .box5,
+.plant-health-page .box51 {
+    grid-column: 1 / -1;
+    width: auto;
+    margin-top: 0;
+}
+
+.plant-health-page .box0 h2,
+.plant-health-page .box1 h2,
+.plant-health-page .box2 h2,
+.plant-health-page .box3 h2,
+.plant-health-page .box4 h2,
+.plant-health-page .box5 h2,
+.plant-health-page .box51 h2 {
+    font-size: 14px;
+    color: #40533b;
+}
+
+.plant-health-page .unit {
+    margin-top: 10px;
+    font-size: 30px;
+    color: #65b32e;
+    font-weight: bold;
+}
+
+.plant-health-page .t1 {
+    margin-top: 5px;
+    color: #666666;
+    font-size: 13px;
+}
+
+.plant-health-page .temp,
+.plant-health-page .hum {
+    width: 100%;
+    display: flex;
+    gap: 15px;
+    margin-top: 15px;
+}
+
+.plant-health-page .box6,
+.plant-health-page .box7,
+.plant-health-page .box8,
+.plant-health-page .box9,
+.plant-health-page .box10,
+.plant-health-page .box11,
+.plant-health-page .box12,
+.plant-health-page .box13 {
+    flex: 1;
+    padding: 18px;
+    background-color: #f4f8f1;
+    border: 1px solid #cbdcc3;
+    border-radius: 0;
+}
+
+.plant-health-page .box6 h2,
+.plant-health-page .box7 h2,
+.plant-health-page .box8 h2,
+.plant-health-page .box9 h2,
+.plant-health-page .box10 h2,
+.plant-health-page .box11 h2,
+.plant-health-page .box12 h2,
+.plant-health-page .box13 h2 {
+    font-size: 15px;
+    color: #40533b;
+}
+
+.plant-health-page .dashboard2 {
+    width: 100%;
+    padding: 20px;
+    background-color: #f5f8f3;
+}
+
+.plant-health-page .controls {
+    width: 100%;
+    padding: 20px;
+    background-color: white;
+    border: 1px solid #dddddd;
+    border-radius: 0;
+}
+
+.plant-health-page .panel {
+    width: 100%;
+    display: flex;
+    gap: 15px;
+    padding: 0;
+    margin: 0;
+    background-color: transparent;
+}
+
+.plant-health-page .exn {
+    width: 20%;
+    padding: 18px;
+    background-color: #e5f3df;
+    border: 2px solid #65b32e;
+    border-radius: 0;
+    text-align: center;
+}
+
+.plant-health-page .exn h2 {
+    font-size: 13px;
+    color: #40533b;
+}
+
+.plant-health-page .exf {
+    margin-top: 10px;
+    font-size: 24px;
+    color: #3f8c20;
+    font-weight: bold;
+}
+
+.plant-health-page .modes {
+    width: 30%;
+    padding: 18px;
+    background-color: white;
+    border: 1px solid #cbdcc3;
+    border-radius: 0;
+}
+
+.plant-health-page .modes h2 {
+    font-size: 14px;
+    color: #40533b;
+}
+
+.plant-health-page .filters {
+    width: 50%;
+    padding: 18px;
+    background-color: white;
+    border: 1px solid #cbdcc3;
+    border-radius: 0;
+}
+
+.plant-health-page .filters h2 {
+    font-size: 14px;
+    color: #40533b;
+}
+
+.plant-health-page .m1 {
+    display: flex;
+    gap: 5px;
+    margin-top: 10px;
+}
+
+.plant-health-page .m1 input {
+    display: none;
+}
+
+.plant-health-page .m1 label {
+    padding: 10px 18px;
+    border-radius: 0;
+    cursor: pointer;
+    color: #222;
+    border: 1px solid transparent;
+}
+
+.plant-health-page .m1 input:checked + label {
+    background: #65b32e;
+    color: white;
+    border: 1px solid #4d9021;
+}
+
+.plant-health-page .graphs {
+    width: 100%;
+    padding: 20px;
+    background-color: #f5f8f3;
+}
+
+.plant-health-page .glayout {
+    width: 100%;
+    padding: 20px;
+    background-color: white;
+    border: 1px solid #dddddd;
+    border-radius: 0;
+}
+
+.plant-health-page .gly1,
+.plant-health-page .gly2 {
+    padding: 10px 0;
+    display: flex;
+    gap: 10px;
+}
+
+.plant-health-page .c1,
+.plant-health-page .c2,
+.plant-health-page .c3,
+.plant-health-page .c5,
+.plant-health-page .c6,
+.plant-health-page .c7 {
+    flex: 1;
+    height: 300px;
+    background-color: white;
+    border: 1px solid #cbdcc3;
+    border-radius: 0;
+    position: relative;
+    box-sizing: border-box;
+    padding: 10px;
+}
+
+.plant-health-page .c4 {
+    width: 100%;
+    height: 400px;
+    background-color: white;
+    border: 1px solid #cbdcc3;
+    border-radius: 0;
+    position: relative;
+    box-sizing: border-box;
+    padding: 10px;
+    margin-top: 10px;
+    margin-bottom: 10px;
+}
+
+.plant-health-page .c1 canvas,
+.plant-health-page .c2 canvas,
+.plant-health-page .c3 canvas,
+.plant-health-page .c4 canvas,
+.plant-health-page .c5 canvas,
+.plant-health-page .c6 canvas,
+.plant-health-page .c7 canvas {
+    max-width: 100%;
+    display: block;
+}
+
+.plant-health-page .alert-section-wrapper {
+    width: 100%;
+    padding: 0 20px 20px 20px;
+    background-color: #f5f8f3;
+}
+
+.plant-health-page .plant-alert-banner {
+    width: 100%;
+    margin-bottom: 20px;
+    padding: 18px 24px;
+    background: linear-gradient(135deg, #e5f3df 0%, #d5edd0 100%);
+    border: 2px solid #65b32e;
+    border-left: 6px solid #65b32e;
+    border-radius: 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    animation: fadeIn 0.3s ease-in-out;
+}
+
+.plant-health-page .alert-banner-left {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.plant-health-page .alert-badge-icon {
+    font-size: 28px;
+    background: white;
+    padding: 8px 12px;
+    border-radius: 0;
+    border: 1px solid #cbdcc3;
+}
+
+.plant-health-page .alert-banner-text h3 {
+    font-size: 16px;
+    font-weight: 700;
+    color: #124500;
+    margin-bottom: 4px;
+}
+
+.plant-health-page .alert-banner-text p {
+    font-size: 13px;
+    color: #335522;
+    margin: 0;
+}
+
+.plant-health-page .alert-banner-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.plant-health-page .alert-status-pill {
+    padding: 6px 14px;
+    background: #65b32e;
+    color: white;
+    font-size: 12px;
+    font-weight: 700;
+    border-radius: 0;
+    border: 1px solid #4d9021;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.plant-health-page .alert-close-btn {
+    background: transparent;
+    border: 1px solid transparent;
+    font-size: 18px;
+    color: #40533b;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 0;
+    transition: 0.2s;
+}
+
+.plant-health-page .alert-close-btn:hover {
+    background: rgba(0, 0, 0, 0.1);
+    border-color: #cbdcc3;
+}
+
+.plant-health-page .insights {
+    width: 100%;
+    padding: 0;
+    background-color: transparent;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+}
+
+.plant-health-page .events-panel,
+.plant-health-page .intelligence-panel {
+    padding: 20px;
+    background-color: white;
+    border: 1px solid #dddddd;
+    border-radius: 0;
+}
+
+.plant-health-page .events-panel .head,
+.plant-health-page .intelligence-panel .head {
+    margin-bottom: 15px;
+}
+
+.plant-health-page .events-list {
+    max-height: 420px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding-right: 4px;
+}
+
+.plant-health-page .event-item {
+    padding: 14px 16px;
+    background-color: #f4f8f1;
+    border: 1px solid #cbdcc3;
+    border-left: 4px solid #65b32e;
+    border-radius: 0;
+    transition: border-color 0.2s, transform 0.2s, background-color 0.2s;
+}
+
+.plant-health-page .event-item:hover {
+    border-color: #65b32e;
+    background-color: #edf6e9;
+    transform: translateX(2px);
+}
+
+.plant-health-page .event-item-top {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.plant-health-page .event-icon {
+    font-size: 20px;
+    line-height: 1;
+}
+
+.plant-health-page .event-item-text {
+    display: flex;
+    flex-direction: column;
+}
+
+.plant-health-page .event-title {
+    font-size: 14px;
+    font-weight: bold;
+    color: #222222;
+    letter-spacing: 0.2px;
+}
+
+.plant-health-page .event-time {
+    font-size: 11px;
+    color: #888888;
+    margin-top: 2px;
+}
+
+.plant-health-page .event-details {
+    list-style: none;
+    margin-top: 8px;
+    padding-left: 30px;
+    font-size: 13px;
+    color: #444444;
+}
+
+.plant-health-page .event-details li {
+    padding: 2px 0;
+}
+
+.plant-health-page .event-item.level-low {
+    border-left-color: #3f8c20;
+    background-color: #eef7e8;
+}
+
+.plant-health-page .event-item.level-medium {
+    border-left-color: #e0a327;
+    background-color: #fdf5e2;
+}
+
+.plant-health-page .event-item.level-high {
+    border-left-color: #d63636;
+    background-color: #fbeaea;
+}
+
+.plant-health-page .event-item.level-positive {
+    border-left-color: #2f80c9;
+    background-color: #e9f2fb;
+}
+
+.plant-health-page .intelligence-list {
+    list-style: none;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.plant-health-page .intelligence-list li {
+    padding: 12px 14px;
+    background-color: #f4f8f1;
+    border: 1px solid #cbdcc3;
+    border-left: 3px solid #65b32e;
+    border-radius: 0;
+    font-size: 13px;
+    color: #333333;
+    line-height: 1.5;
+    transition: border-color 0.2s, transform 0.2s, background-color 0.2s;
+}
+
+.plant-health-page .intelligence-list li:hover {
+    border-color: #65b32e;
+    background-color: #edf6e9;
+    transform: translateX(2px);
+}
+
+.plant-health-page .downc {
+    width: 100%;
+    padding: 20px;
+    background-color: #f5f8f3;
+}
+
+.plant-health-page .dlayout {
+    width: 100%;
+    padding: 20px;
+    background-color: white;
+    border: 1px solid #dddddd;
+    border-radius: 0;
+}
+
+.plant-health-page .dlayout button {
+    padding: 10px 20px;
+    margin-right: 10px;
+    border: 1px solid #40533b;
+    border-radius: 0;
+    background-color: #40533b;
+    color: white;
+    cursor: pointer;
+    transition: background-color 0.2s, border-color 0.2s;
+}
+
+.plant-health-page .dlayout button:hover {
+    background-color: #33452f;
+    border-color: #273724;
+}
+
+@media (max-width: 900px) {
+    .plant-health-page .ai-panels,
+    .plant-health-page .main,
+    .plant-health-page .temp,
+    .plant-health-page .hum,
+    .plant-health-page .panel,
+    .plant-health-page .gly1,
+    .plant-health-page .gly2,
+    .plant-health-page .insights {
+        flex-direction: column;
+        grid-template-columns: 1fr;
+    }
+
+    .plant-health-page .exn,
+    .plant-health-page .modes,
+    .plant-health-page .filters {
+        width: 100%;
+    }
+
+    .plant-health-page .plant-alert-banner {
+        flex-direction: column;
+        gap: 12px;
+        align-items: flex-start;
+    }
+}
+
+.plant-health-page .nutrient-matrix-section {
+    margin-top: 24px;
+    padding: 22px;
+    background: #ffffff;
+    border: 1px solid #dddddd;
+    border-radius: 0;
+}
+
+.plant-health-page .nutrient-tag-badge {
+    background: #e5f3df;
+    color: #1b5e20;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 4px 12px;
+    border-radius: 0;
+    border: 1px solid #65b32e;
+}
+
+.plant-health-page .nutrient-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+    margin-top: 14px;
+}
+
+.plant-health-page .nutrient-card {
+    background: #fcfefb;
+    border: 1.5px solid #d9e7d3;
+    border-radius: 0;
+    padding: 16px;
+    cursor: pointer;
+    transition: all 0.25s ease;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+
+.plant-health-page .nutrient-card:hover {
+    border-color: #65b32e;
+    transform: translateY(-3px);
+    background: #ffffff;
+}
+
+.plant-health-page .nutrient-card-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.plant-health-page .nutrient-symbol-badge {
+    width: 36px;
+    height: 36px;
+    border-radius: 0;
+    color: #ffffff;
+    font-weight: 800;
+    font-size: 15px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.plant-health-page .nutrient-header-titles h3 {
+    font-size: 14px;
+    font-weight: 700;
+    color: #1b5e20;
+    margin: 0;
+}
+
+.plant-health-page .nutrient-cat {
+    font-size: 11px;
+    color: #666666;
+}
+
+.plant-health-page .nutrient-card-body {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.plant-health-page .nutrient-field-item .field-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: #40533b;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    display: block;
+    margin-bottom: 2px;
+}
+
+.plant-health-page .nutrient-field-item .field-text {
+    font-size: 12px;
+    color: #333333;
+    line-height: 1.4;
+    margin: 0;
+}
+
+.plant-health-page .organic-box {
+    background: #f0f8ec;
+    padding: 8px 10px;
+    border-radius: 0;
+    border-left: 3px solid #65b32e;
+}
+
+.plant-health-page .nutrient-card-footer {
+    margin-top: 14px;
+    padding-top: 8px;
+    border-top: 1px dashed #d9e7d3;
+}
+
+.plant-health-page .tap-hint {
+    font-size: 11px;
+    color: #3f8c20;
+    font-weight: 600;
+}
+
+.plant-health-page .nutrient-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.6);
+    backdrop-filter: blur(4px);
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    animation: fadeIn 0.2s ease-out;
+}
+
+.plant-health-page .nutrient-modal-card {
+    background: #ffffff;
+    border-radius: 0;
+    border: 2px solid #cbdcc3;
+    width: 100%;
+    max-width: 620px;
+    max-height: 90vh;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+}
+
+.plant-health-page .nutrient-modal-header {
+    padding: 18px 24px;
+    border-bottom: 1px solid #e2e8f0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: #f8fafc;
+}
+
+.plant-health-page .nutrient-modal-header h2 {
+    font-size: 16px;
+    font-weight: 700;
+    color: #0f172a;
+    margin: 0;
+}
+
+.plant-health-page .modal-close-btn {
+    background: none;
+    border: 1px solid transparent;
+    font-size: 18px;
+    color: #64748b;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 0;
+    transition: 0.2s;
+}
+
+.plant-health-page .modal-close-btn:hover {
+    background: #e2e8f0;
+    border-color: #cbd5e1;
+    color: #0f172a;
+}
+
+.plant-health-page .nutrient-modal-body {
+    padding: 20px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.plant-health-page .modal-voice-banner {
+    background: #f0fdf4;
+    border: 1px solid #86efac;
+    border-radius: 0;
+    border-left: 4px solid #16a34a;
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.plant-health-page .modal-section h4 {
+    font-size: 13px;
+    font-weight: 700;
+    color: #1e293b;
+    margin: 0 0 6px 0;
+}
+
+.plant-health-page .modal-section p {
+    font-size: 13px;
+    color: #475569;
+    line-height: 1.5;
+    margin: 0;
+}
+
+.plant-health-page .organic-highlight {
+    background: #f4fbf1;
+    border: 1px solid #cbdcc3;
+    padding: 12px 14px;
+    border-radius: 0;
+}
+
+.plant-health-page .mineral-highlight {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    padding: 12px 14px;
+    border-radius: 0;
+}
+
+.plant-health-page .tip-highlight {
+    background: #fefce8;
+    border: 1px solid #fef08a;
+    padding: 12px 14px;
+    border-radius: 0;
+}
+
+.plant-health-page .nutrient-modal-footer {
+    padding: 14px 24px;
+    border-top: 1px solid #e2e8f0;
+    display: flex;
+    justify-content: flex-end;
+    background: #f8fafc;
+}
+
+.plant-health-page .btn-modal-close {
+    background: #1b5e20;
+    color: #ffffff;
+    border: 1px solid #14532d;
+    padding: 8px 18px;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: 0;
+    cursor: pointer;
+    transition: 0.2s;
+}
+
+.plant-health-page .btn-modal-close:hover {
+    background: #15803d;
+}
+
+.plant-health-page .hourly-canopy-box,
+.plant-health-page .live-canopy-box {
+    position: relative;
+    width: 100%;
+    height: 230px;
+    border-radius: 0;
+    overflow: hidden;
+    background: #0f172a;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.plant-health-page .hourly-canopy-img,
+.plant-health-page .live-canopy-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    transition: transform 0.3s ease;
+}
+
+.plant-health-page .hourly-canopy-box:hover .hourly-canopy-img,
+.plant-health-page .live-canopy-box:hover .live-canopy-img {
+    transform: scale(1.02);
+}
+
+.plant-health-page .canopy-empty-state,
+.plant-health-page .diagnostics-empty-state {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    min-height: 180px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    background-color: #f1f5ee;
+    border: 1px dashed #cbdcc3;
+    border-radius: 0;
+    color: #64748b;
+    padding: 20px;
+    text-align: center;
+}
+
+.plant-health-page .empty-state-svg {
+    color: #94a3b8;
+}
+
+.plant-health-page .empty-state-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #40533b;
+    letter-spacing: 0.2px;
+}
+
+.plant-health-page .crop-history-section {
+    width: 100%;
+    margin-top: 20px;
+    padding: 16px 20px;
+    background: #ffffff;
+    border: 1px solid #dddddd;
+    border-radius: 0;
+}
+
+.plant-health-page .crop-history-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.plant-health-page .crop-history-header h2 {
+    font-size: 15px;
+    font-weight: 700;
+    color: #1b5e20;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.plant-health-page .crop-history-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    gap: 12px;
+    overflow-x: auto;
+}
+
+.plant-health-page .history-card {
+    border: 1px solid #e2e8f0;
+    border-radius: 0;
+    overflow: hidden;
+    background: #f8fafc;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.plant-health-page .history-card:hover {
+    border-color: #10b981;
+    transform: translateY(-2px);
+}
+
+.plant-health-page .history-card-img {
+    width: 100%;
+    height: 95px;
+    object-fit: cover;
+    display: block;
+}
+
+.plant-health-page .history-card-body {
+    padding: 8px 10px;
+}
+
+.plant-health-page .history-card-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: #1e293b;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.plant-health-page .history-card-time {
+    font-size: 10px;
+    color: #64748b;
+    margin-top: 2px;
+}
+
+.plant-health-page .history-card-score {
+    font-size: 10px;
+    font-weight: 700;
+    color: #059669;
+    margin-top: 4px;
+}

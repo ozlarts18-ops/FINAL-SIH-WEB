@@ -1,0 +1,89 @@
+.top-header {
+    width: 90%;
+    max-width: 1100px;
+    height: 40px;
+    margin: auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #eef2f7;
+    font-size: 13px;
+    background-color: #ffffff;
+}
+
+.top-left {
+    display: flex;
+    align-items: center;
+}
+
+.header-contact-link {
+    color: #555555;
+    text-decoration: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 500;
+    transition: color 0.2s ease;
+}
+
+.header-contact-link:hover {
+    color: #65b32e;
+}
+
+.top-right {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.social-icons-group {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.top-right a {
+    color: #65b32e;
+    text-decoration: none;
+    font-weight: 600;
+    transition: color 0.2s ease, transform 0.2s ease;
+}
+
+.top-right a:hover {
+    color: #3f7f1d;
+    transform: translateY(-1px);
+}
+
+.brand-link {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: #333333;
+    font-weight: 500;
+    text-decoration: none;
+    transition: color 0.2s ease;
+}
+
+.brand-link:hover {
+    color: #65b32e;
+}
+
+.system-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: #333333;
+    font-weight: 500;
+}
+
+.header-icon {
+    font-size: 13px;
+    line-height: 1;
+}
+
+.divider {
+    width: 1px;
+    height: 16px;
+    background: #dcdcdc;
+    display: inline-block;
+}

@@ -1,0 +1,271 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: Arial, Helvetica, sans-serif;
+    background: #ffffff;
+    color: #222;
+}
+
+.hero {
+    height: 600px;
+    padding: 0;
+}
+
+.hero-text {
+    position: relative;
+    width: 100%;
+    height: 600px;
+    overflow: hidden;
+}
+
+.hero-text img {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.hero-content {
+    position: absolute;
+    top: 80px;
+    left: 80px;
+    width: 500px;
+    padding: 70px;
+    z-index: 1;
+}
+
+.hero-content h1 {
+    color: white;
+    font-size: 70px;
+    margin-bottom: 15px;
+}
+
+.hero-content p {
+    color: white;
+    font-size: 30px;
+    margin-bottom: 20px;
+}
+
+.body {
+    width: 100%;
+    min-height: 450px;
+    display: flex;
+    align-items: center;
+    padding: 50px 30px;
+    justify-content: center;
+    background: #f5f5f5;
+}
+
+.Body-content {
+    width: 50%;
+    padding: 40px;
+}
+
+.Body-content h1 {
+    font-size: 40px;
+    margin-bottom: 20px;
+    color: #4d9021;
+}
+
+.Body-content p {
+    font-size: 17px;
+    line-height: 1.7;
+    color: #555;
+}
+
+.body-image {
+    width: 30%;
+}
+
+.body-image img {
+    width: 100%;
+    height: 350px;
+    object-fit: cover;
+    display: block;
+}
+
+.services {
+    text-align: center;
+    padding: 60px 50px;
+    background-color: #65b32e;
+}
+
+.services h3 {
+    color: #ffffff;
+    font-size: 25px;
+    margin-bottom: 10px;
+}
+
+.services h2 {
+    color: #222222;
+    font-size: 40px;
+    margin-bottom: 15px;
+}
+
+.services-intro {
+    color: #ffffff;
+    font-size: 20px;
+    max-width: 700px;
+    margin: 0 auto;
+    text-align: center;
+}
+
+.services-container {
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+    margin-top: 30px;
+}
+
+.pcard1,
+.pcard2,
+.pcard3 {
+    width: 30%;
+    height: 70%;
+    overflow: hidden;
+}
+
+.pcard1 img,
+.pcard2 img,
+.pcard3 img {
+    width: 100%;
+    height: 400px;
+    object-fit: cover;
+    display: block;
+}
+
+.body2 {
+    width: 100%;
+    min-height: 450px;
+    display: flex;
+    flex-direction: row-reverse;
+    align-items: center;
+    padding: 50px 30px;
+    background: #f5f5f5;
+}
+
+.Body2-content {
+    width: 50%;
+    padding: 40px;
+}
+
+.Body2-content h1 {
+    font-size: 40px;
+    margin-bottom: 20px;
+    color: #4d9021;
+}
+
+.Body2-content p {
+    font-size: 17px;
+    line-height: 1.7;
+    color: #555;
+}
+
+.body2-image {
+    width: 40%;
+}
+
+.body2-image img {
+    width: 80%;
+    height: 350px;
+    object-fit: cover;
+    display: block;
+}
+
+.dtext {
+    width: 100%;
+    min-height: 350px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    background-color: #f5f8f0;
+    padding: 40px 20px;
+}
+
+.dtext-content h1 {
+    font-size: 45px;
+    color: #65b32e;
+    margin-bottom: 10px;
+}
+
+.dtext-content p {
+    font-size: 17px;
+    color: #355b3a;
+    line-height: 1.5;
+    margin: 0;
+}
+
+.Cont1 {
+    margin-top: 20px;
+}
+
+.b1 {
+    display: inline-block;
+    background-color: #65b32e;
+    color: white;
+    border: none;
+    padding: 12px 25px;
+    font-size: 14px;
+    font-weight: bold;
+    text-decoration: none;
+}
+
+.b1:hover {
+    background-color: #4d9021;
+}
+
+.services2 {
+    text-align: center;
+    padding: 60px 50px;
+    background-color: #65b32e;
+}
+
+.services2 h3 {
+    color: #ffffff;
+    font-size: 25px;
+    margin-bottom: 10px;
+}
+
+.services2 h2 {
+    color: #222222;
+    font-size: 40px;
+    margin-bottom: 15px;
+}
+
+.services2-intro {
+    color: #ffffff;
+    font-size: 20px;
+    max-width: 700px;
+    text-align: center;
+    margin: 30px auto 0 auto;
+}
+
+.services2-container {
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+    margin-top: 30px;
+}
+
+.pcard4,
+.pcard5,
+.pcard6 {
+    width: 20%;
+    height: 70%;
+    overflow: hidden;
+}
+
+.pcard4 img,
+.pcard5 img,
+.pcard6 img {
+    width: 140%;
+    height: 400px;
+    object-fit: cover;
+    display: block;
+}

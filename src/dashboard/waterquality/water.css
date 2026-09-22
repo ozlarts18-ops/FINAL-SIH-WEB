@@ -1,0 +1,640 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: Arial, Helvetica, sans-serif;
+    background: #ffffff;
+    color: #222;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    overflow-x: hidden;
+}
+
+.water-quality-page .sub-nav {
+    width: 100%;
+    background-color: #65b32e;
+}
+
+.water-quality-page .nav-links2 {
+    width: 90%;
+    max-width: 1100px;
+    margin: 0 auto;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 30px;
+    flex-wrap: nowrap;
+}
+
+.water-quality-page .nav-links2 a {
+    text-decoration: none;
+    font-size: 13px;
+    font-weight: 700;
+    color: #ffffff;
+    padding: 14px 0;
+    letter-spacing: 0.3px;
+    white-space: nowrap;
+    display: inline-block;
+    transition: 0.3s;
+}
+
+.water-quality-page .nav-links2 a:hover {
+    transform: scale(1.15);
+}
+
+.water-quality-page .nav-links2 a.active {
+    color: #1b5e20;
+}
+
+.water-quality-page .dashboard {
+    width: 100%;
+    padding: 20px;
+    background-color: #f5f8f3;
+}
+
+.water-quality-page .overview {
+    width: 100%;
+    padding: 20px;
+    background-color: white;
+    border: 1px solid #dddddd;
+    border-radius: 0;
+}
+
+.water-quality-page .head {
+    width: 100%;
+    padding-bottom: 10px;
+    margin-bottom: 20px;
+    border-bottom: 2px solid #65b32e;
+}
+
+.water-quality-page .head h1 {
+    font-size: 24px;
+    color: #124500;
+}
+
+.water-quality-page .head .subtext {
+    margin-top: 4px;
+    font-size: 13px;
+    color: #666666;
+}
+
+.water-quality-page .main {
+    width: 100%;
+    display: flex;
+    gap: 20px;
+}
+
+.water-quality-page .left {
+    width: 35%;
+}
+
+.water-quality-page .right {
+    width: 65%;
+}
+
+.water-quality-page .status {
+    width: 100%;
+    padding: 25px;
+    background-color: #e5f3df;
+    border: 2px solid #65b32e;
+    border-left: 6px solid #65b32e;
+    border-radius: 0;
+    margin-bottom: 15px;
+}
+
+.water-quality-page .status h2 {
+    font-size: 15px;
+    color: #40533b;
+}
+
+.water-quality-page .status .unit {
+    margin-top: 15px;
+    font-size: 38px;
+    color: #3f8c20;
+    font-weight: bold;
+}
+
+.water-quality-page .box1,
+.water-quality-page .box2,
+.water-quality-page .box3,
+.water-quality-page .box4,
+.water-quality-page .box5,
+.water-quality-page .box51 {
+    padding: 18px;
+    background-color: #f4f8f1;
+    border: 1px solid #cbdcc3;
+    border-radius: 0;
+}
+
+.water-quality-page .box1,
+.water-quality-page .box2 {
+    margin-bottom: 15px;
+}
+
+.water-quality-page .box3,
+.water-quality-page .box4 {
+    width: 48%;
+    display: inline-block;
+    vertical-align: top;
+    margin-bottom: 15px;
+}
+
+.water-quality-page .box5 {
+    width: 97%;
+}
+
+.water-quality-page .box51 {
+    margin-top: 15px;
+    width: 97%;
+}
+
+.water-quality-page .box1 h2,
+.water-quality-page .box2 h2,
+.water-quality-page .box3 h2,
+.water-quality-page .box4 h2,
+.water-quality-page .box5 h2,
+.water-quality-page .box6 h2,
+.water-quality-page .box7 h2,
+.water-quality-page .box8 h2,
+.water-quality-page .box9 h2,
+.water-quality-page .box10 h2,
+.water-quality-page .box11 h2,
+.water-quality-page .box12 h2,
+.water-quality-page .box13 h2,
+.water-quality-page .box51 h2 {
+    font-size: 14px;
+    color: #40533b;
+}
+
+.water-quality-page .unit {
+    margin-top: 10px;
+    font-size: 30px;
+    color: #65b32e;
+    font-weight: bold;
+}
+
+.water-quality-page .t1 {
+    margin-top: 5px;
+    color: #666666;
+    font-size: 13px;
+}
+
+.water-quality-page .temp,
+.water-quality-page .hum {
+    width: 100%;
+    display: flex;
+    gap: 15px;
+    margin-top: 20px;
+}
+
+.water-quality-page .temp .box6,
+.water-quality-page .temp .box7,
+.water-quality-page .temp .box8,
+.water-quality-page .temp .box9,
+.water-quality-page .hum .box10,
+.water-quality-page .hum .box11,
+.water-quality-page .hum .box12,
+.water-quality-page .hum .box13 {
+    width: 25%;
+    padding: 18px;
+    margin: 0;
+    background-color: white;
+    border: 1px solid #cbdcc3;
+    border-radius: 0;
+}
+
+.water-quality-page .dashboard2 {
+    width: 100%;
+    padding: 20px;
+    background-color: #f5f8f3;
+}
+
+.water-quality-page .controls {
+    width: 100%;
+    padding: 20px;
+    background-color: white;
+    border: 1px solid #dddddd;
+    border-radius: 0;
+}
+
+.water-quality-page .panel {
+    width: 100%;
+    display: flex;
+    gap: 15px;
+    padding: 0;
+    margin: 0;
+    background-color: transparent;
+}
+
+.water-quality-page .exn {
+    width: 30%;
+    padding: 18px;
+    background-color: white;
+    border: 1px solid #cbdcc3;
+    border-radius: 0;
+}
+
+.water-quality-page .exn h2 {
+    font-size: 14px;
+    color: #40533b;
+}
+
+.water-quality-page .exn .exf {
+    margin-top: 10px;
+    font-size: 30px;
+    color: #65b32e;
+    font-weight: bold;
+}
+
+.water-quality-page .modes,
+.water-quality-page .filters {
+    width: 70%;
+    padding: 18px;
+    background-color: white;
+    border: 1px solid #cbdcc3;
+    border-radius: 0;
+}
+
+.water-quality-page .modes h2,
+.water-quality-page .filters h2 {
+    font-size: 14px;
+    color: #40533b;
+}
+
+.water-quality-page .m1 {
+    display: flex;
+    gap: 5px;
+    margin-top: 10px;
+}
+
+.water-quality-page .m1 input {
+    display: none;
+}
+
+.water-quality-page .m1 label {
+    padding: 10px 18px;
+    border-radius: 0;
+    cursor: pointer;
+    color: #222;
+    border: 1px solid transparent;
+    transition: 0.2s;
+}
+
+.water-quality-page .m1 input:checked + label {
+    background: #65b32e;
+    color: white;
+    border: 1px solid #4d9021;
+}
+
+.water-quality-page .graphs {
+    width: 100%;
+    padding: 20px;
+    background-color: #f5f8f3;
+}
+
+.water-quality-page .glayout {
+    width: 100%;
+    padding: 20px;
+    background-color: white;
+    border: 1px solid #dddddd;
+    border-radius: 0;
+}
+
+.water-quality-page .gly1,
+.water-quality-page .gly2 {
+    padding: 10px 0;
+    display: flex;
+    gap: 10px;
+}
+
+.water-quality-page .c1,
+.water-quality-page .c2,
+.water-quality-page .c3,
+.water-quality-page .c5,
+.water-quality-page .c6,
+.water-quality-page .c7 {
+    flex: 1;
+    height: 300px;
+    background-color: white;
+    border: 1px solid #cbdcc3;
+    border-radius: 0;
+    position: relative;
+    box-sizing: border-box;
+    padding: 10px;
+}
+
+.water-quality-page .c4 {
+    width: 100%;
+    height: 400px;
+    background-color: white;
+    border: 1px solid #cbdcc3;
+    border-radius: 0;
+    position: relative;
+    box-sizing: border-box;
+    padding: 10px;
+    margin-top: 10px;
+    margin-bottom: 10px;
+}
+
+.water-quality-page .c1 canvas,
+.water-quality-page .c2 canvas,
+.water-quality-page .c3 canvas,
+.water-quality-page .c4 canvas,
+.water-quality-page .c5 canvas,
+.water-quality-page .c6 canvas,
+.water-quality-page .c7 canvas {
+    width: 100% !important;
+    height: 100% !important;
+    display: block;
+}
+
+.water-quality-page .alert-section-wrapper {
+    width: 100%;
+    padding: 0 20px 20px 20px;
+    background-color: #f5f8f3;
+}
+
+.water-quality-page .water-alert-banner {
+    width: 100%;
+    margin-bottom: 20px;
+    padding: 18px 24px;
+    background: linear-gradient(135deg, #e5f3df 0%, #d5edd0 100%);
+    border: 2px solid #65b32e;
+    border-left: 6px solid #65b32e;
+    border-radius: 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    animation: fadeIn 0.3s ease-in-out;
+}
+
+.water-quality-page .alert-banner-left {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.water-quality-page .alert-badge-icon {
+    font-size: 28px;
+    background: white;
+    padding: 8px 12px;
+    border-radius: 0;
+    border: 1px solid #cbdcc3;
+}
+
+.water-quality-page .alert-banner-text h3 {
+    font-size: 16px;
+    font-weight: 700;
+    color: #124500;
+    margin-bottom: 4px;
+}
+
+.water-quality-page .alert-banner-text p {
+    font-size: 13px;
+    color: #335522;
+    margin: 0;
+}
+
+.water-quality-page .alert-banner-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.water-quality-page .alert-status-pill {
+    padding: 6px 14px;
+    background: #65b32e;
+    color: white;
+    font-size: 12px;
+    font-weight: 700;
+    border-radius: 0;
+    border: 1px solid #4d9021;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.water-quality-page .alert-close-btn {
+    background: transparent;
+    border: 1px solid transparent;
+    font-size: 18px;
+    color: #40533b;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 0;
+    transition: 0.2s;
+}
+
+.water-quality-page .alert-close-btn:hover {
+    background: rgba(0, 0, 0, 0.1);
+    border-color: #cbdcc3;
+}
+
+.water-quality-page .insights {
+    width: 100%;
+    padding: 0;
+    background-color: transparent;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+}
+
+.water-quality-page .events-panel,
+.water-quality-page .intelligence-panel {
+    padding: 20px;
+    background-color: white;
+    border: 1px solid #dddddd;
+    border-radius: 0;
+}
+
+.water-quality-page .events-panel .head,
+.water-quality-page .intelligence-panel .head {
+    margin-bottom: 15px;
+}
+
+.water-quality-page .events-list {
+    max-height: 420px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding-right: 4px;
+}
+
+.water-quality-page .event-item {
+    padding: 14px 16px;
+    background-color: #f4f8f1;
+    border: 1px solid #cbdcc3;
+    border-left: 4px solid #65b32e;
+    border-radius: 0;
+    transition: border-color 0.2s, transform 0.2s, background-color 0.2s;
+}
+
+.water-quality-page .event-item:hover {
+    border-color: #65b32e;
+    background-color: #edf6e9;
+    transform: translateX(2px);
+}
+
+.water-quality-page .event-item-top {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.water-quality-page .event-icon {
+    font-size: 20px;
+    line-height: 1;
+}
+
+.water-quality-page .event-item-text {
+    display: flex;
+    flex-direction: column;
+}
+
+.water-quality-page .event-title {
+    font-size: 14px;
+    font-weight: bold;
+    color: #222222;
+    letter-spacing: 0.2px;
+}
+
+.water-quality-page .event-time {
+    font-size: 11px;
+    color: #888888;
+    margin-top: 2px;
+}
+
+.water-quality-page .event-details {
+    list-style: none;
+    margin-top: 8px;
+    padding-left: 30px;
+    font-size: 13px;
+    color: #444444;
+}
+
+.water-quality-page .event-details li {
+    padding: 2px 0;
+}
+
+.water-quality-page .event-item.level-low {
+    border-left-color: #3f8c20;
+    background-color: #eef7e8;
+}
+
+.water-quality-page .event-item.level-medium {
+    border-left-color: #e0a327;
+    background-color: #fdf5e2;
+}
+
+.water-quality-page .event-item.level-high {
+    border-left-color: #d63636;
+    background-color: #fbeaea;
+}
+
+.water-quality-page .event-item.level-positive {
+    border-left-color: #2f80c9;
+    background-color: #e9f2fb;
+}
+
+.water-quality-page .intelligence-list {
+    list-style: none;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.water-quality-page .intelligence-list li {
+    padding: 12px 14px;
+    background-color: #f4f8f1;
+    border: 1px solid #cbdcc3;
+    border-left: 3px solid #65b32e;
+    border-radius: 0;
+    font-size: 13px;
+    color: #333333;
+    line-height: 1.5;
+    transition: border-color 0.2s, transform 0.2s, background-color 0.2s;
+}
+
+.water-quality-page .intelligence-list li:hover {
+    border-color: #65b32e;
+    background-color: #edf6e9;
+    transform: translateX(2px);
+}
+
+.water-quality-page .downc {
+    width: 100%;
+    padding: 20px;
+    background-color: #f5f8f3;
+}
+
+.water-quality-page .dlayout {
+    width: 100%;
+    padding: 20px;
+    background-color: white;
+    border: 1px solid #dddddd;
+    border-radius: 0;
+}
+
+.water-quality-page .dlayout button {
+    padding: 10px 20px;
+    margin-right: 10px;
+    border: 1px solid #40533b;
+    border-radius: 0;
+    background-color: #40533b;
+    color: white;
+    cursor: pointer;
+    font-weight: 600;
+    transition: 0.2s;
+}
+
+.water-quality-page .dlayout button:hover {
+    background-color: #33452f;
+    border-color: #273724;
+    transform: translateY(-1px);
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@media (max-width: 900px) {
+    .water-quality-page .main {
+        flex-direction: column;
+    }
+    .water-quality-page .left,
+    .water-quality-page .right {
+        width: 100%;
+    }
+    .water-quality-page .temp,
+    .water-quality-page .hum {
+        flex-wrap: wrap;
+    }
+    .water-quality-page .temp .box6,
+    .water-quality-page .temp .box7,
+    .water-quality-page .temp .box8,
+    .water-quality-page .temp .box9,
+    .water-quality-page .hum .box10,
+    .water-quality-page .hum .box11,
+    .water-quality-page .hum .box12,
+    .water-quality-page .hum .box13 {
+        width: calc(50% - 10px);
+    }
+    .water-quality-page .gly1,
+    .water-quality-page .gly2 {
+        flex-direction: column;
+    }
+    .water-quality-page .insights {
+        grid-template-columns: 1fr;
+    }
+    .water-quality-page .water-alert-banner {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+    }
+}

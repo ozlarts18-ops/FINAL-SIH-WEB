@@ -1,0 +1,18 @@
+{
+  "name": "EnviroX - AI Smart Farming Assistant",
+  "short_name": "EnviroX Farm",
+  "description": "Field-deployable AI Smart Farming Assistant for Indian agriculture. Detects crop diseases, pests, nutrient deficiencies, and irrigation needs.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#65b32e",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["agriculture", "productivity", "utilities"]
+}

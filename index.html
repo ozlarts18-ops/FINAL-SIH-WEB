@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#65b32e" />
+    <meta name="description" content="EnviroX - Field-deployable AI Smart Farming Assistant for Indian agriculture" />
+    <link rel="manifest" href="/manifest.json" />
+    <title>EnviroX - AI Smart Farming Assistant</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js')
+            .then(reg => console.log('[PWA Service Worker] Registered scope:', reg.scope))
+            .catch(err => console.warn('[PWA Service Worker] Registration notice:', err.message));
+        });
+      }
+    </script>
+  </body>
+</html>

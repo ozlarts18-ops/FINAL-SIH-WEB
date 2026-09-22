@@ -1,0 +1,53 @@
+{
+  "name": "envirox",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "ai": "\"C:\\Users\\OSWALDO\\Documents\\IOT19-main\\Backend\\ai\\venv\\Scripts\\python.exe\" inference_server.py",
+    "start": "vite",
+    "build": "vite build",
+    "lint": "eslint .",
+    "preview": "vite preview",
+    "seed": "node scripts/init_db.js",
+    "seed:mongo": "node scripts/init_mongodb.js",
+    "sync:mongo": "node scripts/sync_seed_to_mongodb.js",
+    "test:db": "node scripts/test_api_and_db.js",
+    "test:sms": "node scripts/test_twilio_sms.js",
+    "test:whatsapp": "node scripts/test_twilio_whatsapp.js",
+    "test:telegram": "node scripts/test_telegram.js",
+    "test:meta": "node scripts/test_meta_whatsapp.js",
+    "test:bot": "node scripts/test_interactive_bot.js",
+    "tunnel": "node scripts/start_tunnel.js",
+    "tunnel:cf": "npx -y cloudflared tunnel --url http://localhost:5173",
+    "server": "node server/standaloneServer.js",
+    "esp32:connect": "python scripts/connect_esp32.py --monitor",
+    "esp32:ports": "python scripts/connect_esp32.py --list-ports",
+    "esp32:node1": "node scripts/run_esp32_node1_local.js",
+    "esp32:node2": "node scripts/run_esp32_node2_local.js",
+    "esp32:all": "node scripts/run_all_esp32_nodes_local.js"
+  },
+  "dependencies": {
+    "chart.js": "^4.5.1",
+    "dotenv": "^17.4.2",
+    "localtunnel": "^2.0.2",
+    "mongodb": "^7.6.0",
+    "pg": "^8.23.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-router-dom": "^7.18.3",
+    "twilio": "^6.1.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.1.0",
+    "eslint": "^10.9.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.4",
+    "globals": "^17.11.0",
+    "vite": "^8.2.2"
+  }
+}

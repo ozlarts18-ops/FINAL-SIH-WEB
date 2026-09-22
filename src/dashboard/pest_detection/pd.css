@@ -1,0 +1,1038 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: Arial, Helvetica, sans-serif;
+    background: #ffffff;
+    color: #222;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    overflow-x: hidden;
+}
+
+.pest-detection-page .sub-nav {
+    width: 100%;
+    background-color: #65b32e;
+}
+
+.pest-detection-page .nav-links2 {
+    width: 90%;
+    max-width: 1100px;
+    margin: 0 auto;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 30px;
+    flex-wrap: nowrap;
+}
+
+.pest-detection-page .nav-links2 a {
+    text-decoration: none;
+    font-size: 13px;
+    font-weight: 700;
+    color: #ffffff;
+    padding: 14px 0;
+    letter-spacing: 0.3px;
+    white-space: nowrap;
+    display: inline-block;
+    transition: 0.3s;
+}
+
+.pest-detection-page .nav-links2 a:hover {
+    transform: scale(1.15);
+}
+
+.pest-detection-page .nav-links2 a.active {
+    color: #1b5e20;
+}
+
+.pest-detection-page .ai-model {
+    width: 100%;
+    padding: 20px;
+    background-color: #f5f8f3;
+}
+
+.pest-detection-page .ai-panels {
+    width: 100%;
+    padding: 20px;
+    background-color: white;
+    border: 1px solid #dddddd;
+    border-radius: 0;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 18px;
+}
+
+.pest-detection-page .cam-panel {
+    border: 2px solid #cbdcc3;
+    border-radius: 0;
+    padding: 18px;
+    background-color: #f4f8f1;
+    transition: border-color 0.25s, transform 0.25s;
+}
+
+.pest-detection-page .cam-panel:hover {
+    border-color: #65b32e;
+    transform: translateY(-2px);
+}
+
+.pest-detection-page .cam-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+
+.pest-detection-page .cam-panel h2 {
+    font-size: 13px;
+    letter-spacing: 0.4px;
+    color: #40533b;
+}
+
+.pest-detection-page .status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    border-radius: 0;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+}
+
+.pest-detection-page .status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 0;
+    display: inline-block;
+}
+
+.pest-detection-page .pill-online {
+    background-color: #e5f3df;
+    color: #2f6d16;
+}
+
+.pest-detection-page .pill-online .status-dot {
+    background-color: #3f8c20;
+    animation: pd-pulse 1.6s infinite;
+}
+
+.pest-detection-page .pill-offline {
+    background-color: #fbe6e6;
+    color: #a11f1f;
+}
+
+.pest-detection-page .pill-offline .status-dot {
+    background-color: #d63636;
+}
+
+.pest-detection-page .pill-idle {
+    background-color: #eef1ec;
+    color: #666666;
+}
+
+.pest-detection-page .pill-idle .status-dot {
+    background-color: #999999;
+}
+
+.pest-detection-page .pill-upload {
+    background-color: #e6f0fb;
+    color: #1c568f;
+}
+
+.pest-detection-page .pill-upload .status-dot {
+    background-color: #2f80c9;
+}
+
+@keyframes pd-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+.pest-detection-page .cam-frame,
+.pest-detection-page .output-frame {
+    aspect-ratio: 16 / 9;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    background-color: #e5e9e2;
+    border-radius: 0;
+    position: relative;
+}
+
+.pest-detection-page .cam-frame img,
+.pest-detection-page .output-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.pest-detection-page .ai-output-container {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: #1e251c;
+    border-radius: 0;
+    overflow: hidden;
+}
+
+.pest-detection-page .ai-image-wrapper {
+    position: relative;
+    display: inline-block;
+    max-width: 100%;
+    max-height: 100%;
+    line-height: 0;
+}
+
+.pest-detection-page .ai-image-wrapper .output-image {
+    max-width: 100%;
+    max-height: 210px;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+    display: block;
+    border-radius: 0;
+}
+
+.pest-detection-page .ai-scanning-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.45);
+    backdrop-filter: blur(1.5px);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+    border-radius: 0;
+}
+
+.pest-detection-page .scanner-laser-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 3px;
+    background: linear-gradient(90deg, transparent, #10b981, #22c55e, #10b981, transparent);
+    animation: pd-laser-scan 1.8s ease-in-out infinite alternate;
+}
+
+@keyframes pd-laser-scan {
+    0% { top: 2%; }
+    100% { top: 96%; }
+}
+
+.pest-detection-page .scanning-hud-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(0, 0, 0, 0.85);
+    color: #4ade80;
+    padding: 6px 14px;
+    border-radius: 0;
+    font-size: 11px;
+    font-weight: 700;
+    border: 1px solid rgba(74, 222, 128, 0.6);
+    line-height: 1.2;
+}
+
+.pest-detection-page .radar-ping {
+    width: 8px;
+    height: 8px;
+    border-radius: 0;
+    background-color: #22c55e;
+    animation: pd-pulse 1.2s infinite;
+}
+
+.pest-detection-page .ai-boxes-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 5;
+}
+
+.pest-detection-page .ai-bbox-box {
+    position: absolute;
+    border: 2px solid #10b981;
+    background: rgba(16, 185, 129, 0.12);
+    border-radius: 0;
+    animation: pd-bbox-glow 2s infinite ease-in-out;
+    transition: all 0.3s ease;
+}
+
+.pest-detection-page .ai-bbox-box.sev-low {
+    border-color: #10b981;
+    background: rgba(16, 185, 129, 0.15);
+}
+
+.pest-detection-page .ai-bbox-box.sev-medium {
+    border-color: #f59e0b;
+    background: rgba(245, 158, 11, 0.15);
+}
+
+.pest-detection-page .ai-bbox-box.sev-high,
+.pest-detection-page .ai-bbox-box.sev-severe {
+    border-color: #ef4444;
+    background: rgba(239, 68, 68, 0.2);
+}
+
+.pest-detection-page .ai-bbox-corner {
+    position: absolute;
+    width: 6px;
+    height: 6px;
+    border: 2px solid #ffffff;
+}
+
+.pest-detection-page .ai-bbox-corner.tl { top: -2px; left: -2px; border-right: none; border-bottom: none; }
+.pest-detection-page .ai-bbox-corner.tr { top: -2px; right: -2px; border-left: none; border-bottom: none; }
+.pest-detection-page .ai-bbox-corner.bl { bottom: -2px; left: -2px; border-right: none; border-top: none; }
+.pest-detection-page .ai-bbox-corner.br { bottom: -2px; right: -2px; border-left: none; border-top: none; }
+
+@keyframes pd-bbox-glow {
+    0%, 100% { opacity: 0.92; }
+    50% { opacity: 1; }
+}
+
+.pest-detection-page .ai-bbox-label {
+    position: absolute;
+    bottom: 100%;
+    left: -2px;
+    transform: translateY(-4px);
+    background: rgba(15, 23, 42, 0.92);
+    color: #ffffff;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 0;
+    white-space: nowrap;
+    border: 1px solid currentColor;
+    letter-spacing: 0.3px;
+    line-height: 1.2;
+}
+
+.pest-detection-page .ai-hud-floating-pill {
+    position: absolute;
+    bottom: 6px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(15, 23, 42, 0.88);
+    backdrop-filter: blur(4px);
+    color: #f8fafc;
+    padding: 3px 12px;
+    border-radius: 0;
+    font-size: 10.5px;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    white-space: nowrap;
+    z-index: 12;
+}
+
+.pest-detection-page .hud-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 0;
+    background-color: #10b981;
+}
+
+.pest-detection-page .upload-preview-wrapper {
+    position: relative;
+    width: 100%;
+    max-height: 150px;
+    border-radius: 0;
+    overflow: hidden;
+    background-color: #000;
+}
+
+.pest-detection-page .upload-analyzing-badge {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    color: white;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.pest-detection-page .upload-spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top-color: #ffffff;
+    border-radius: 50%;
+    animation: pd-spin 0.8s linear infinite;
+}
+
+@keyframes pd-spin {
+    to { transform: rotate(360deg); }
+}
+
+.pest-detection-page .pill-analyzing {
+    background-color: #fef3c7;
+    color: #92400e;
+}
+
+.pest-detection-page .pill-analyzing .status-dot {
+    background-color: #d97706;
+    animation: pd-pulse 1s infinite;
+}
+
+.pest-detection-page .severity-indicator.sev-low { color: #16a34a; font-weight: 700; }
+.pest-detection-page .severity-indicator.sev-medium { color: #d97706; font-weight: 700; }
+.pest-detection-page .severity-indicator.sev-high { color: #ea580c; font-weight: 700; }
+.pest-detection-page .severity-indicator.sev-severe { color: #dc2626; font-weight: 700; }
+.pest-detection-page .text-hazard { color: #dc2626 !important; font-weight: 700; }
+
+.pest-detection-page .pest-alert-banner.banner-severe,
+.pest-detection-page .pest-alert-banner.banner-high {
+    border-color: #fca5a5;
+    background-color: #fef2f2;
+}
+
+.pest-detection-page .pest-alert-banner.banner-severe h3,
+.pest-detection-page .pest-alert-banner.banner-high h3 {
+    color: #991b1b;
+}
+
+.pest-detection-page .pest-alert-banner.banner-low {
+    border-color: #bbf7d0;
+    background-color: #f0fdf4;
+}
+
+.pest-detection-page .pest-alert-banner.banner-low h3 {
+    color: #166534;
+}
+
+.pest-detection-page .cam-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    color: #888;
+    font-size: 13px;
+}
+
+.pest-detection-page .placeholder-icon {
+    font-size: 26px;
+}
+
+.pest-detection-page .upload-box {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+}
+
+.pest-detection-page .upload-dropzone {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    cursor: pointer;
+    border: 2px dashed #9fc98a;
+    border-radius: 0;
+    background-color: #eaf4e3;
+    color: #40533b;
+    transition: background-color 0.2s, border-color 0.2s;
+}
+
+.pest-detection-page .upload-dropzone:hover {
+    background-color: #e0f0d6;
+    border-color: #65b32e;
+}
+
+.pest-detection-page .upload-label-text {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.pest-detection-page .upload-hint {
+    font-size: 11px;
+    color: #779a6c;
+}
+
+.pest-detection-page .upload-preview {
+    width: 100%;
+    max-height: 150px;
+    object-fit: cover;
+    border-radius: 0;
+}
+
+.pest-detection-page .upload-actions {
+    width: 100%;
+    display: flex;
+    gap: 8px;
+}
+
+.pest-detection-page .upload-label-secondary {
+    flex: 1;
+    text-align: center;
+    cursor: pointer;
+    padding: 8px 14px;
+    border: 1px solid #65b32e;
+    border-radius: 0;
+    color: #40533b;
+    font-size: 12px;
+    background-color: white;
+}
+
+.pest-detection-page .upload-label-secondary:hover {
+    background-color: #e5f3df;
+}
+
+.pest-detection-page .clear-upload {
+    flex: 1;
+    padding: 8px 14px;
+    border: 1px solid #40533b;
+    border-radius: 0;
+    background-color: #40533b;
+    color: white;
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.pest-detection-page .clear-upload:hover {
+    background-color: #33452f;
+}
+
+.pest-detection-page .dashboard {
+    width: 100%;
+    padding: 20px;
+    background-color: #f5f8f3;
+}
+
+.pest-detection-page .overview {
+    width: 100%;
+    padding: 20px;
+    background-color: white;
+    border: 1px solid #dddddd;
+    border-radius: 0;
+}
+
+.pest-detection-page .head {
+    width: 100%;
+    padding-bottom: 10px;
+    margin-bottom: 20px;
+    border-bottom: 2px solid #65b32e;
+}
+
+.pest-detection-page .head h1 {
+    font-size: 24px;
+    color: #124500;
+}
+
+.pest-detection-page .head .subtext {
+    margin-top: 4px;
+    font-size: 13px;
+    color: #666666;
+}
+
+.pest-detection-page .main {
+    width: 100%;
+    display: flex;
+    gap: 20px;
+}
+
+.pest-detection-page .left {
+    width: 35%;
+}
+
+.pest-detection-page .right {
+    width: 65%;
+}
+
+.pest-detection-page .status {
+    width: 100%;
+    padding: 25px;
+    background-color: #e5f3df;
+    border: 2px solid #65b32e;
+    border-left: 6px solid #65b32e;
+    border-radius: 0;
+    margin-bottom: 15px;
+}
+
+.pest-detection-page .status h2 {
+    font-size: 15px;
+    color: #40533b;
+}
+
+.pest-detection-page .status .unit {
+    margin-top: 15px;
+    font-size: 38px;
+    color: #3f8c20;
+    font-weight: bold;
+}
+
+.pest-detection-page .box1,
+.pest-detection-page .box2,
+.pest-detection-page .box3,
+.pest-detection-page .box4,
+.pest-detection-page .box5,
+.pest-detection-page .box51 {
+    padding: 18px;
+    background-color: #f4f8f1;
+    border: 1px solid #cbdcc3;
+    border-radius: 0;
+}
+
+.pest-detection-page .box1,
+.pest-detection-page .box2 {
+    margin-bottom: 15px;
+}
+
+.pest-detection-page .box3,
+.pest-detection-page .box4 {
+    width: 48%;
+    display: inline-block;
+    vertical-align: top;
+    margin-bottom: 15px;
+}
+
+.pest-detection-page .box5 {
+    width: 97%;
+}
+
+.pest-detection-page .box51 {
+    margin-top: 15px;
+    width: 97%;
+}
+
+.pest-detection-page .box1 h2,
+.pest-detection-page .box2 h2,
+.pest-detection-page .box3 h2,
+.pest-detection-page .box4 h2,
+.pest-detection-page .box5 h2,
+.pest-detection-page .box51 h2 {
+    font-size: 14px;
+    color: #40533b;
+}
+
+.pest-detection-page .unit {
+    margin-top: 10px;
+    font-size: 30px;
+    color: #65b32e;
+    font-weight: bold;
+}
+
+.pest-detection-page .t1 {
+    margin-top: 5px;
+    color: #666666;
+    font-size: 13px;
+}
+
+.pest-detection-page .dashboard2 {
+    width: 100%;
+    padding: 20px;
+    background-color: #f5f8f3;
+}
+
+.pest-detection-page .controls {
+    width: 100%;
+    padding: 20px;
+    background-color: white;
+    border: 1px solid #dddddd;
+    border-radius: 0;
+}
+
+.pest-detection-page .panel {
+    width: 100%;
+    display: flex;
+    gap: 15px;
+    padding: 0;
+    margin: 0;
+    background-color: transparent;
+}
+
+.pest-detection-page .filters {
+    width: 70%;
+    padding: 18px;
+    background-color: white;
+    border: 1px solid #cbdcc3;
+    border-radius: 0;
+}
+
+.pest-detection-page .filters h2 {
+    font-size: 14px;
+    color: #40533b;
+}
+
+.pest-detection-page .m1 {
+    display: flex;
+    gap: 5px;
+    margin-top: 10px;
+}
+
+.pest-detection-page .m1 input {
+    display: none;
+}
+
+.pest-detection-page .m1 label {
+    padding: 10px 18px;
+    border-radius: 0;
+    cursor: pointer;
+    color: #222;
+    border: 1px solid transparent;
+}
+
+.pest-detection-page .m1 input:checked + label {
+    background: #65b32e;
+    color: white;
+    border: 1px solid #4d9021;
+}
+
+.pest-detection-page .graphs {
+    width: 100%;
+    padding: 20px;
+    background-color: #f5f8f3;
+}
+
+.pest-detection-page .glayout {
+    width: 100%;
+    padding: 20px;
+    background-color: white;
+    border: 1px solid #dddddd;
+    border-radius: 0;
+}
+
+.pest-detection-page .pest-charts-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+    margin-top: 15px;
+}
+
+.pest-detection-page .pest-chart-card {
+    background-color: #ffffff;
+    border: 1px solid #cbdcc3;
+    border-radius: 0;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+}
+
+.pest-detection-page .pest-chart-card.full-width {
+    grid-column: 1 / -1;
+}
+
+.pest-detection-page .pest-chart-card.half-width {
+    grid-column: span 1;
+}
+
+.pest-detection-page .chart-card-header {
+    padding: 10px 14px;
+    border-bottom: 1px solid #e8eee5;
+    background-color: #fafcf9;
+}
+
+.pest-detection-page .chart-card-header h3 {
+    margin: 0;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    color: #33452f;
+    text-transform: uppercase;
+}
+
+.pest-detection-page .chart-card-body {
+    padding: 14px;
+    height: 280px;
+    position: relative;
+    box-sizing: border-box;
+}
+
+.pest-detection-page .chart-card-body canvas {
+    width: 100% !important;
+    height: 100% !important;
+    display: block;
+}
+
+.pest-detection-page .alert-section-wrapper {
+    width: 100%;
+    padding: 0 20px 20px 20px;
+    background-color: #f5f8f3;
+}
+
+.pest-detection-page .pest-alert-banner {
+    width: 100%;
+    margin-bottom: 20px;
+    padding: 18px 24px;
+    background: linear-gradient(135deg, #e5f3df 0%, #d5edd0 100%);
+    border: 2px solid #65b32e;
+    border-left: 6px solid #65b32e;
+    border-radius: 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    animation: fadeIn 0.3s ease-in-out;
+}
+
+.pest-detection-page .alert-banner-left {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.pest-detection-page .alert-badge-icon {
+    font-size: 28px;
+    background: white;
+    padding: 8px 12px;
+    border-radius: 0;
+    border: 1px solid #cbdcc3;
+}
+
+.pest-detection-page .alert-banner-text h3 {
+    font-size: 16px;
+    font-weight: 700;
+    color: #124500;
+    margin-bottom: 4px;
+}
+
+.pest-detection-page .alert-banner-text p {
+    font-size: 13px;
+    color: #335522;
+    margin: 0;
+}
+
+.pest-detection-page .alert-banner-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.pest-detection-page .alert-status-pill {
+    padding: 6px 14px;
+    background: #65b32e;
+    color: white;
+    font-size: 12px;
+    font-weight: 700;
+    border-radius: 0;
+    border: 1px solid #4d9021;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.pest-detection-page .alert-close-btn {
+    background: transparent;
+    border: 1px solid transparent;
+    font-size: 18px;
+    color: #40533b;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 0;
+    transition: 0.2s;
+}
+
+.pest-detection-page .alert-close-btn:hover {
+    background: rgba(0, 0, 0, 0.1);
+    border-color: #cbdcc3;
+}
+
+.pest-detection-page .insights {
+    width: 100%;
+    padding: 0;
+    background-color: transparent;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+}
+
+.pest-detection-page .events-panel,
+.pest-detection-page .intelligence-panel {
+    padding: 20px;
+    background-color: white;
+    border: 1px solid #dddddd;
+    border-radius: 0;
+}
+
+.pest-detection-page .events-panel .head,
+.pest-detection-page .intelligence-panel .head {
+    margin-bottom: 15px;
+}
+
+.pest-detection-page .events-list {
+    max-height: 420px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding-right: 4px;
+}
+
+.pest-detection-page .event-item {
+    padding: 14px 16px;
+    background-color: #f4f8f1;
+    border: 1px solid #cbdcc3;
+    border-left: 4px solid #65b32e;
+    border-radius: 0;
+    transition: border-color 0.2s, transform 0.2s, background-color 0.2s;
+}
+
+.pest-detection-page .event-item:hover {
+    border-color: #65b32e;
+    background-color: #edf6e9;
+    transform: translateX(2px);
+}
+
+.pest-detection-page .event-item-top {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.pest-detection-page .event-icon {
+    font-size: 20px;
+    line-height: 1;
+}
+
+.pest-detection-page .event-item-text {
+    display: flex;
+    flex-direction: column;
+}
+
+.pest-detection-page .event-title {
+    font-size: 14px;
+    font-weight: bold;
+    color: #222222;
+    letter-spacing: 0.2px;
+}
+
+.pest-detection-page .event-time {
+    font-size: 11px;
+    color: #888888;
+    margin-top: 2px;
+}
+
+.pest-detection-page .event-details {
+    list-style: none;
+    margin-top: 8px;
+    padding-left: 30px;
+    font-size: 13px;
+    color: #444444;
+}
+
+.pest-detection-page .event-details li {
+    padding: 2px 0;
+}
+
+.pest-detection-page .event-item.level-low {
+    border-left-color: #3f8c20;
+    background-color: #eef7e8;
+}
+
+.pest-detection-page .event-item.level-medium {
+    border-left-color: #e0a327;
+    background-color: #fdf5e2;
+}
+
+.pest-detection-page .event-item.level-high {
+    border-left-color: #d63636;
+    background-color: #fbeaea;
+}
+
+.pest-detection-page .event-item.level-positive {
+    border-left-color: #2f80c9;
+    background-color: #e9f2fb;
+}
+
+.pest-detection-page .intelligence-list {
+    list-style: none;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.pest-detection-page .intelligence-list li {
+    padding: 12px 14px;
+    background-color: #f4f8f1;
+    border: 1px solid #cbdcc3;
+    border-left: 3px solid #65b32e;
+    border-radius: 0;
+    font-size: 13px;
+    color: #333333;
+    line-height: 1.5;
+    transition: border-color 0.2s, transform 0.2s, background-color 0.2s;
+}
+
+.pest-detection-page .intelligence-list li:hover {
+    border-color: #65b32e;
+    background-color: #edf6e9;
+    transform: translateX(2px);
+}
+
+.pest-detection-page .downc {
+    width: 100%;
+    padding: 20px;
+    background-color: #f5f8f3;
+}
+
+.pest-detection-page .dlayout {
+    width: 100%;
+    padding: 20px;
+    background-color: white;
+    border: 1px solid #dddddd;
+    border-radius: 0;
+}
+
+.pest-detection-page .dlayout button {
+    padding: 10px 20px;
+    margin-right: 10px;
+    border: 1px solid #40533b;
+    border-radius: 0;
+    background-color: #40533b;
+    color: white;
+    cursor: pointer;
+    transition: background-color 0.2s, border-color 0.2s;
+}
+
+.pest-detection-page .dlayout button:hover {
+    background-color: #33452f;
+    border-color: #273724;
+}
+
+@media (max-width: 900px) {
+    .pest-detection-page .ai-panels,
+    .pest-detection-page .main,
+    .pest-detection-page .temp,
+    .pest-detection-page .hum,
+    .pest-detection-page .panel,
+    .pest-detection-page .pest-charts-grid,
+    .pest-detection-page .insights {
+        flex-direction: column;
+        grid-template-columns: 1fr;
+    }
+
+    .pest-detection-page .pest-chart-card.full-width,
+    .pest-detection-page .pest-chart-card.half-width {
+        grid-column: 1;
+    }
+
+    .pest-detection-page .exn,
+    .pest-detection-page .modes,
+    .pest-detection-page .filters {
+        width: 100%;
+    }
+
+    .pest-detection-page .pest-alert-banner {
+        flex-direction: column;
+        gap: 12px;
+        align-items: flex-start;
+    }
+}
