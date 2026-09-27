@@ -5,7 +5,8 @@ dotenv.config();
 
 let client = null;
 let dbInstance = null;
-let isConnecting = false;
+let connectionPromise = null;
+let isConnected = false;
 let lastWarningTime = 0;
 
 function getMongoUri() {
@@ -17,8 +18,12 @@ function getDbName() {
 }
 
 export async function getMongoClient() {
-    if (client && client.topology && client.topology.isConnected()) {
+    if (client && isConnected) {
         return client;
+    }
+
+    if (connectionPromise) {
+        return connectionPromise;
     }
 
     const uri = getMongoUri();
@@ -26,52 +31,58 @@ export async function getMongoClient() {
 
     if (!client) {
         client = new MongoClient(uri, {
-            serverSelectionTimeoutMS: 3000,
-            connectTimeoutMS: 4000,
-            socketTimeoutMS: 5000,
+            serverSelectionTimeoutMS: 5000,
+            connectTimeoutMS: 10000,
             maxPoolSize: 10,
             minPoolSize: 1,
         });
     }
 
-    if (!isConnecting) {
-        isConnecting = true;
+    connectionPromise = (async () => {
         try {
             await client.connect();
             dbInstance = client.db(dbName);
+            isConnected = true;
             console.log(`🍃 Connected to MongoDB: ${dbName}`);
+            return client;
         } catch (err) {
+            isConnected = false;
+            connectionPromise = null;
             const now = Date.now();
             if (now - lastWarningTime > 60000) {
-                console.warn(`[MongoDB Notice] Could not connect to database:`, err.message);
+                console.warn(`[MongoDB Notice] Could not connect to database: ${err.message}`);
                 lastWarningTime = now;
             }
             throw err;
-        } finally {
-            isConnecting = false;
         }
-    }
+    })();
 
-    return client;
+    return connectionPromise;
 }
 
 export async function getMongoDb() {
-    if (!dbInstance) {
-        await getMongoClient();
+    if (dbInstance && isConnected) {
+        return dbInstance;
     }
+    await getMongoClient();
     return dbInstance;
 }
 
 export async function getCollection(collectionName) {
-    const db = await getMongoDb();
-    return db.collection(collectionName);
+    try {
+        const db = await getMongoDb();
+        if (!db) return null;
+        return db.collection(collectionName);
+    } catch (_e) {
+        return null;
+    }
 }
 
 export async function checkMongoHealth() {
     try {
-        const client = await getMongoClient();
+        const mongoClient = await getMongoClient();
         const dbName = getDbName();
-        const adminDb = client.db(dbName).admin();
+        const adminDb = mongoClient.db(dbName).admin();
         const ping = await adminDb.ping();
         return {
             status: 'connected',
@@ -89,8 +100,13 @@ export async function checkMongoHealth() {
 
 export async function closeMongo() {
     if (client) {
-        await client.close();
+        try {
+            await client.close();
+        } catch (_e) {}
         client = null;
         dbInstance = null;
+        connectionPromise = null;
+        isConnected = false;
     }
 }
+

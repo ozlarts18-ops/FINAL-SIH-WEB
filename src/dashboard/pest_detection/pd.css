@@ -65,6 +65,7 @@ body {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     gap: 18px;
+    align-items: stretch;
 }
 
 .pest-detection-page .cam-panel {
@@ -73,6 +74,11 @@ body {
     padding: 18px;
     background-color: #f4f8f1;
     transition: border-color 0.25s, transform 0.25s;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    height: 100%;
+    box-sizing: border-box;
 }
 
 .pest-detection-page .cam-panel:hover {
@@ -154,8 +160,11 @@ body {
 }
 
 .pest-detection-page .cam-frame,
-.pest-detection-page .output-frame {
-    aspect-ratio: 16 / 9;
+.pest-detection-page .output-frame,
+.pest-detection-page .ai-output-container {
+    height: 440px;
+    min-height: 440px;
+    width: 100%;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -163,6 +172,25 @@ body {
     background-color: #e5e9e2;
     border-radius: 0;
     position: relative;
+    box-sizing: border-box;
+}
+
+.pest-detection-page .upload-dropzone,
+.pest-detection-page .upload-preview-wrapper {
+    height: 320px;
+    min-height: 320px;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    cursor: pointer;
+    border: 2px dashed #9fc98a;
+    border-radius: 0;
+    background-color: #eaf4e3;
+    color: #40533b;
+    transition: background-color 0.2s, border-color 0.2s;
 }
 
 .pest-detection-page .cam-frame img,
@@ -1008,6 +1036,18 @@ body {
 }
 
 @media (max-width: 900px) {
+    .pest-detection-page .cam-frame,
+    .pest-detection-page .output-frame,
+    .pest-detection-page .ai-output-container {
+        height: 360px;
+        min-height: 360px;
+    }
+    .pest-detection-page .upload-dropzone,
+    .pest-detection-page .upload-preview-wrapper {
+        height: 280px;
+        min-height: 280px;
+    }
+
     .pest-detection-page .ai-panels,
     .pest-detection-page .main,
     .pest-detection-page .temp,
@@ -1036,3 +1076,115 @@ body {
         align-items: flex-start;
     }
 }
+
+.pest-detection-page .upload-container {
+    width: 100%;
+    position: relative;
+}
+
+.pest-detection-page .upload-dropzone {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    cursor: pointer;
+    border: 2px dashed #9fc98a;
+    border-radius: 0;
+    background-color: #eaf4e3;
+    color: #40533b;
+    transition: background-color 0.2s, border-color 0.2s;
+}
+
+.pest-detection-page .upload-dropzone:hover {
+    background-color: #e0f0d6;
+    border-color: #65b32e;
+}
+
+.pest-detection-page .upload-label-text {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.pest-detection-page .upload-hint {
+    font-size: 11px;
+    color: #779a6c;
+}
+
+.pest-detection-page .upload-preview-wrapper {
+    position: relative;
+    width: 100%;
+    max-height: 150px;
+    border-radius: 0;
+    overflow: hidden;
+    background-color: #000;
+}
+
+.pest-detection-page .upload-preview-image {
+    width: 100%;
+    max-height: 150px;
+    object-fit: contain;
+    display: block;
+}
+
+.pest-detection-page .upload-analyzing-badge {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    color: white;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.pest-detection-page .upload-spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top-color: #ffffff;
+    border-radius: 50%;
+    animation: plant-spin 0.8s linear infinite;
+}
+
+.pest-detection-page .upload-actions {
+    width: 100%;
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.pest-detection-page .upload-label-secondary {
+    flex: 1;
+    text-align: center;
+    cursor: pointer;
+    padding: 8px 14px;
+    border: 1px solid #65b32e;
+    border-radius: 0;
+    color: #40533b;
+    font-size: 12px;
+    background-color: white;
+}
+
+.pest-detection-page .upload-label-secondary:hover {
+    background-color: #e5f3df;
+}
+
+.pest-detection-page .clear-upload {
+    flex: 1;
+    padding: 8px 14px;
+    border: 1px solid #40533b;
+    border-radius: 0;
+    background-color: #40533b;
+    color: white;
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.pest-detection-page .clear-upload:hover {
+    background-color: #33452f;
+}

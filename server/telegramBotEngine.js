@@ -220,7 +220,7 @@ export async function handleTelegramMessage(chatId, userText = '', userMeta = {}
 /**
  * Handle callback queries from inline keyboard clicks
  */
-export async function handleTelegramCallback(chatId, callbackQueryId, callbackData, userMeta = {}) {
+export async function handleTelegramCallback(chatId, callbackQueryId, callbackData, _userMeta = {}) {
     console.log(`[tg-bot] click chat:${chatId} action:"${callbackData}"`);
 
     // Acknowledge click immediately to clear loading spinner in user UI

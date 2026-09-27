@@ -65,6 +65,7 @@ body {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     gap: 18px;
+    align-items: stretch;
 }
 
 .plant-health-page .cam-panel {
@@ -73,6 +74,11 @@ body {
     padding: 18px;
     background-color: #f4f8f1;
     transition: border-color 0.25s, transform 0.25s;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    height: 100%;
+    box-sizing: border-box;
 }
 
 .plant-health-page .cam-panel:hover {
@@ -154,8 +160,11 @@ body {
 }
 
 .plant-health-page .cam-frame,
-.plant-health-page .output-frame {
-    aspect-ratio: 16 / 9;
+.plant-health-page .output-frame,
+.plant-health-page .ai-output-container {
+    height: 440px;
+    min-height: 440px;
+    width: 100%;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -163,6 +172,25 @@ body {
     background-color: #e5e9e2;
     border-radius: 0;
     position: relative;
+    box-sizing: border-box;
+}
+
+.plant-health-page .upload-dropzone,
+.plant-health-page .upload-preview-wrapper {
+    height: 320px;
+    min-height: 320px;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    cursor: pointer;
+    border: 2px dashed #9fc98a;
+    border-radius: 0;
+    background-color: #eaf4e3;
+    color: #40533b;
+    transition: background-color 0.2s, border-color 0.2s;
 }
 
 .plant-health-page .cam-frame img,
@@ -1436,4 +1464,32 @@ body {
     font-weight: 700;
     color: #059669;
     margin-top: 4px;
+}
+
+@media (max-width: 900px) {
+    .plant-health-page .cam-frame,
+    .plant-health-page .output-frame,
+    .plant-health-page .ai-output-container {
+        height: 360px;
+        min-height: 360px;
+    }
+    .plant-health-page .upload-dropzone,
+    .plant-health-page .upload-preview-wrapper {
+        height: 280px;
+        min-height: 280px;
+    }
+}
+
+@media (max-width: 600px) {
+    .plant-health-page .cam-frame,
+    .plant-health-page .output-frame,
+    .plant-health-page .ai-output-container {
+        height: 280px;
+        min-height: 280px;
+    }
+    .plant-health-page .upload-dropzone,
+    .plant-health-page .upload-preview-wrapper {
+        height: 240px;
+        min-height: 240px;
+    }
 }

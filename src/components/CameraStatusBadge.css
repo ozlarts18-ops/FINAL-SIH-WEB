@@ -1,0 +1,100 @@
+.camera-status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 10px;
+    border-radius: 9999px;
+    font-size: 11px;
+    font-family: inherit;
+    line-height: 1.2;
+    transition: all 0.25s ease;
+    user-select: none;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.camera-status-badge.badge-online {
+    background: #ecfdf5;
+    border: 1px solid #10b981;
+    color: #065f46;
+}
+
+.camera-status-badge.badge-offline {
+    background: #fef2f2;
+    border: 1px solid #f87171;
+    color: #991b1b;
+}
+
+.cam-pulse-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    position: relative;
+}
+
+.cam-pulse-dot.dot-online {
+    background-color: #10b981;
+    box-shadow: 0 0 6px #10b981;
+    animation: camDotPulse 2s infinite;
+}
+
+.cam-pulse-dot.dot-offline {
+    background-color: #ef4444;
+    box-shadow: 0 0 4px rgba(239, 68, 68, 0.6);
+}
+
+@keyframes camDotPulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+    }
+    70% {
+        box-shadow: 0 0 0 6px rgba(16, 185, 129, 0);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+    }
+}
+
+.cam-status-info {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+.cam-state-label strong {
+    font-weight: 700;
+}
+
+.cam-ip-label {
+    opacity: 0.9;
+    font-family: monospace;
+    font-size: 11px;
+    letter-spacing: 0.2px;
+    font-weight: 600;
+}
+
+.cam-badge-cfg-btn {
+    background: #1e293b;
+    border: 1px solid #0f172a;
+    color: #ffffff;
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 10px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    outline: none;
+    margin-left: 2px;
+}
+
+.cam-badge-cfg-btn:hover {
+    background: #334155;
+    border-color: #1e293b;
+    transform: translateY(-1px);
+}
+
+.camera-status-badge.badge-compact {
+    padding: 2px 8px;
+    font-size: 10px;
+}

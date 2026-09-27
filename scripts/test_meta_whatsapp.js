@@ -3,6 +3,7 @@ dotenv.config();
 
 import { 
     sendMetaTextMessage, 
+    sendMetaTemplate,
     sendMetaWelcomeAlert, 
     sendMetaLoginAlert 
 } from '../server/metaWhatsappService.js';
@@ -17,6 +18,10 @@ async function runTest() {
 
     console.log(`📱 Recipient Target: ${recipient}`);
     console.log(`🔑 Access Token: ${process.env.META_WHATSAPP_TOKEN ? '✅ Configured' : '❌ Missing'}\n`);
+
+    console.log('0️⃣ Sending Meta Pre-Approved Template (hello_world)...');
+    const templateRes = await sendMetaTemplate(recipient, 'hello_world');
+    console.log('Template Status 0:', templateRes.success ? '✅ Delivered' : '❌ Failed', templateRes);
 
     console.log('1️⃣ Sending IOTrex Registration Welcome Alert...');
     const welcome = await sendMetaWelcomeAlert(recipient, 'Oswaldo');

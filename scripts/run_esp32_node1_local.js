@@ -1,12 +1,36 @@
 
-const TARGET_URL = process.env.SERVER_URL || 'http://localhost:5173/data';
+import { resolveMdns, getPrimaryLanIp } from '../server/mdnsService.js';
+
+const TARGET_HOST = process.env.TARGET_HOST || 'iotrex.local';
+const TARGET_PORT = process.env.PORT || 5173;
 const DEVICE_ID = 'ESP32-S3-01';
 const INTERVAL_MS = 2500;
 
+let resolvedIp = null;
+let lastResolve = 0;
+
+async function getEffectiveTargetUrl() {
+    if (process.env.SERVER_URL) return process.env.SERVER_URL;
+
+    // Refresh mDNS resolution if uninitialized or older than 60s
+    if (!resolvedIp || (Date.now() - lastResolve > 60000)) {
+        console.log(`Resolving ${TARGET_HOST} via mDNS...`);
+        resolvedIp = await resolveMdns(TARGET_HOST, 2000);
+        if (resolvedIp) {
+            lastResolve = Date.now();
+            console.log(`IOTrex server resolved: ${resolvedIp}`);
+        } else {
+            console.warn(`mDNS resolution failed for ${TARGET_HOST}, falling back to LAN IP: ${getPrimaryLanIp()}`);
+            resolvedIp = getPrimaryLanIp();
+        }
+    }
+    return `http://${resolvedIp}:${TARGET_PORT}/data`;
+}
+
 console.log('======================================================================');
 console.log('💨 ENVIROX ESP32-S3 #1 (ESP32-S3-01) LOCAL AIR TELEMETRY DAEMON');
-console.log(`📡 Ingestion Endpoint: ${TARGET_URL}`);
-console.log(`⏱️  Cycle Interval:    ${INTERVAL_MS} ms`);
+console.log(`📡 Target Host:        ${TARGET_HOST}:${TARGET_PORT}/data`);
+console.log(`⏱️  Cycle Interval:     ${INTERVAL_MS} ms`);
 console.log('======================================================================\n');
 
 let step = 0;
@@ -24,8 +48,6 @@ async function cycle() {
     const rainRaw = Math.round(3800 - Math.cos(step * 0.04) * 400);
     const rainDetected = rainRaw < 3500;
 
-    const buzzerActive = gasDetected || rainDetected;
-
     console.log('======================================');
     console.log('        ENVIROX ESP32-S3 #1');
     console.log('======================================');
@@ -34,7 +56,6 @@ async function cycle() {
     console.log(`Light: ${lux.toFixed(1)} lux`);
     console.log(`Gas detected: ${gasDetected ? 'YES' : 'NO'}`);
     console.log(`Rain detected: ${rainDetected ? 'YES' : 'NO'}`);
-    console.log(`Buzzer: ${buzzerActive ? 'ON' : 'OFF'}`);
 
     const payload = {
         device: DEVICE_ID,
@@ -42,15 +63,17 @@ async function cycle() {
         humidity: humidity,
         lux: lux,
         gasDetected: gasDetected,
-        rainDetected: rainDetected,
-        buzzer: buzzerActive
+        rainDetected: rainDetected
     };
 
     console.log('\nENVIROX TELEMETRY');
     console.log(JSON.stringify(payload));
 
     try {
-        const res = await fetch(TARGET_URL, {
+        const targetUrl = await getEffectiveTargetUrl();
+        console.log(`POST http://iotrex.local:${TARGET_PORT}/data (-> ${targetUrl})`);
+
+        const res = await fetch(targetUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -59,8 +82,7 @@ async function cycle() {
             body: JSON.stringify(payload)
         });
 
-        console.log(`POST -> ${TARGET_URL}`);
-        console.log(`HTTP Response Code: ${res.status}`);
+        console.log(`HTTP response: ${res.status}`);
 
         const body = await res.json();
         console.log('Server Response:', JSON.stringify(body));
@@ -68,7 +90,8 @@ async function cycle() {
             console.log('EnviroX: DATA SENT SUCCESSFULLY');
         }
     } catch (err) {
-        console.error(`[HTTP Error] Failed to reach ${TARGET_URL}:`, err.message);
+        console.error(`[HTTP Error] Failed to reach http://iotrex.local:${TARGET_PORT}/data:`, err.message);
+        resolvedIp = null; // Re-resolve next cycle on failure
     }
 
     console.log();

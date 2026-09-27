@@ -69,19 +69,16 @@ async function cycle() {
     const gasDetected = gasRaw > 1500;
     const rainRaw = Math.round(3800 - Math.cos(step * 0.04) * 400);
     const rainDetected = rainRaw < 3500;
-    const buzzerActive = gasDetected || rainDetected;
-
     const node1Payload = {
         device: "ESP32-S3-01",
         temperature: temp,
         humidity: hum,
         lux: lux,
         gasDetected: gasDetected,
-        rainDetected: rainDetected,
-        buzzer: buzzerActive
+        rainDetected: rainDetected
     };
 
-    console.log(`🔹 [ESP32-S3-01 Air Node]: Temp: ${temp}°C | Hum: ${hum}% | Lux: ${lux} lx | Gas: ${gasDetected ? 'YES' : 'NO'} | Rain: ${rainDetected ? 'YES' : 'NO'} | Buzzer: ${buzzerActive ? 'ON' : 'OFF'}`);
+    console.log(`🔹 [ESP32-S3-01 Air Node]: Temp: ${temp}°C | Hum: ${hum}% | Lux: ${lux} lx | Gas: ${gasDetected ? 'YES' : 'NO'} | Rain: ${rainDetected ? 'YES' : 'NO'}`);
     console.log(`   Payload: ${JSON.stringify(node1Payload)}`);
 
     const soilADC = Math.round(1160 + Math.sin(step * 0.15) * 220);

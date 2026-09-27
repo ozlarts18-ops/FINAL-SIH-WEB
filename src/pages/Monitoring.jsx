@@ -89,10 +89,10 @@ const Monitoring = () => {
                         <img src="/Photos/Raspberrypi2.jpg" alt="ESP32-S3 & Raspberry Pi" />
                     </div>
                     <div className="content4">
-                        <h2>Plant Growth & Disease AI Diagnosis</h2>
+                        <h2>{t('monitoring.card4Title')}</h2>
                         <p>
                             <b>{t('monitoring.infoLabel')}</b><br />
-                            Real-time on-chip and cloud pathology scanner analyzing leaf morphology, chlorophyll deficiency, powdery mildew, and blight with confidence scoring and automated fertigation triggers.
+                            {t('monitoring.card4Info')}
                         </p>
                         <p>
                             <b>{t('monitoring.techLabel')}</b><br />
@@ -113,7 +113,7 @@ const Monitoring = () => {
                         <h2>{t('monitoring.card5Title')}</h2>
                         <p>
                             <b>{t('monitoring.infoLabel')}</b><br />
-                            AI-driven multi-factor atmospheric regression and hazard classifier predicting composite Air Quality Score (0-100), EPA/CPCB AQI, 24-hour predictive forecast, and intelligent ventilation actuation.
+                            {t('monitoring.card5Info')}
                         </p>
                         <p>
                             <b>{t('monitoring.techLabel')}</b><br />
@@ -130,10 +130,10 @@ const Monitoring = () => {
                         <img src="/Photos/sensor6.jpg" alt="ESP32-S3 Pest AI" />
                     </div>
                     <div className="content6">
-                        <h2>ESP32-S3 Edge AI Pest Detection & Actuation</h2>
+                        <h2>{t('monitoring.card6Title')}</h2>
                         <p>
                             <b>{t('monitoring.infoLabel')}</b><br />
-                            Edge AI vision node utilizing ESP32-S3 vector instructions to identify pest clusters (aphids, whiteflies, leaf miners, armyworms) with bounding box localization and direct solenoid spray valve triggering.
+                            {t('monitoring.card6Info')}
                         </p>
                         <p>
                             <b>{t('monitoring.techLabel')}</b><br />
@@ -160,9 +160,6 @@ const Monitoring = () => {
                             <b>{t('monitoring.techLabel')}</b><br />
                             React 19 + Vite 8<br />
                             Chart.js Real-Time Telemetry<br />
-                            PostgreSQL & MongoDB Auto-Sync Engine<br />
-                            Twilio SMS & Meta WhatsApp & Telegram Bots<br />
-                            Cloudflare Tunnels
                         </p>
                     </div>
                 </div>

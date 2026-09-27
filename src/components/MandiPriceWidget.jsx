@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { useState } from 'react';
 import { useLanguage } from '../context/LanguageContext';
 import AudioVoiceButton from './AudioVoiceButton';

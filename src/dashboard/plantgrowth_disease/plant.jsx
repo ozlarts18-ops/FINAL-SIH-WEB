@@ -1,16 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import Header from '../../components/Header';
 import Nav from '../../components/Nav';
 import Footer from '../../components/Footer';
 import DashboardSubNav from '../../components/DashboardSubNav';
 import AudioVoiceButton from '../../components/AudioVoiceButton';
+import { useLanguage } from '../../context/LanguageContext';
 
 import {
     initCharts,
     applyGraphFilter,
     downloadReport,
     destroyCharts,
-    ESP32_STREAM_URL,
+    ESP32_STREAM_URL as _ESP32_STREAM_URL,
     plantEvents,
     plantRecommendations,
     readImageFile,
@@ -18,69 +19,196 @@ import {
     evaluateWaterloggingRisk
 } from '../mainfunction3';
 
-import { analyzePlantDiseaseImage, fetchLatestSensorData, fetchCameraStatus } from '../../api/dataService';
+import { analyzePlantDiseaseImage, fetchLatestSensorData, fetchPiAiResults, getCropNutrientAiFrameUrl, fetchPiCameraStatus } from '../../api/dataService';
+import { useAiScan } from '../../context/AiScanContext';
 import './plant.css';
 
 const PlantHealthDashboard = () => {
-    const [selectedCrop, setSelectedCrop] = useState('Tomato');
-    const [cameraConnected, setCameraConnected] = useState(false);
-    const [cameraFrame, setCameraFrame] = useState(null);
-    const [cameraUrl, setCameraUrl] = useState(ESP32_STREAM_URL || '/api/camera/stream');
+    const { language, t } = useLanguage();
+    const {
+        cropScanMode: scanMode,
+        setCropScanMode: setScanMode,
+        cropContinuousResult: continuousPiResult,
+        setCropContinuousResult: setContinuousPiResult,
+        cropLiveFrameUrl: liveCropAiFrameUrl,
+        setCropLiveFrameUrl: setLiveCropAiFrameUrl,
+        cropLastProcessedCycleRef: lastProcessedCycleRef
+    } = useAiScan();
+
+    const [selectedCrop] = useState('Tomato');
+    const [cameraConnected, setCameraConnected] = useState(true);
     const [uploadedImage, setUploadedImage] = useState(null);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
-    const [aiResult, setAiResult] = useState(null);
-    const [alertDismissed, setAlertDismissed] = useState(false);
-    const [eventsList, setEventsList] = useState(plantEvents);
-    const [recommendationsList, setRecommendationsList] = useState(plantRecommendations);
-    const [activeNutrientModal, setActiveNutrientModal] = useState(null);
+    const [manualAiResult, setManualAiResult] = useState(null);
+    const [sensorData, setSensorData] = useState(null);
     const [waterloggingData, setWaterloggingData] = useState(() => evaluateWaterloggingRisk(false, 68));
+    const [alertDismissed, setAlertDismissed] = useState(false);
+    const [eventsList] = useState(plantEvents || []);
+    const [recommendationsList] = useState(plantRecommendations || []);
+    const [activeNutrientModal, setActiveNutrientModal] = useState(null);
+    const [aiFrameKey, setAiFrameKey] = useState(() => Date.now());
+    const [isManualScanning, setIsManualScanning] = useState(false);
+
+    const isFetchingCamRef = useRef(false);
+    const isFetchingAiRef = useRef(false);
+    const STREAM_SOURCES = [
+        'http://ossie.local:8080/?action=stream',
+        '/api/camera/stream',
+        '/api/camera/capture',
+        '/api/ai/crop-nutrient-frame'
+    ];
+    const [streamSourceIndex, setStreamSourceIndex] = useState(0);
+
+    const handleStreamError = () => {
+        if (streamSourceIndex < STREAM_SOURCES.length - 1) {
+            setStreamSourceIndex(prev => prev + 1);
+        } else {
+            setCameraConnected(false);
+        }
+    };
+
+    const handleStreamLoad = () => {
+        setCameraConnected(true);
+    };
+
+    const handleAutoScanClick = () => {
+        setScanMode('auto');
+    };
+
+    const handleStopClick = () => {
+        setScanMode('stop');
+    };
+
+    const triggerManualScan = async () => {
+        if (isFetchingAiRef.current) return;
+        setIsManualScanning(true);
+        isFetchingAiRef.current = true;
+        console.log(`[CROP AI] mode=${scanMode} cycle=${lastProcessedCycleRef.current} MANUAL SCAN STARTED`);
+        try {
+            const resData = await fetchPiAiResults();
+            if (resData) {
+                const realCycle = resData.cycle_count || resData.crop_ai?.cycle_count || resData.timestamp || Date.now();
+                const frameUrl = `${getCropNutrientAiFrameUrl()}?frame=${realCycle}`;
+                console.log(`[CROP AI] mode=${scanMode} cycle=${realCycle} lastCycle=${lastProcessedCycleRef.current} MANUAL SCAN SUCCESS | FRAME=${frameUrl}`);
+                
+                lastProcessedCycleRef.current = realCycle;
+                setContinuousPiResult(resData);
+                setLiveCropAiFrameUrl(frameUrl);
+                setAiFrameKey(realCycle);
+            }
+        } catch (err) {
+            console.warn(`[CROP AI] mode=${scanMode} MANUAL SCAN ERROR:`, err?.message || err);
+        } finally {
+            isFetchingAiRef.current = false;
+            setIsManualScanning(false);
+        }
+    };
 
     useEffect(() => {
         initCharts();
 
         let isMounted = true;
+        let cropPollTimeout = null;
+
         const checkCamera = async () => {
+            if (isFetchingCamRef.current) return;
+            isFetchingCamRef.current = true;
             try {
-                const status = await fetchCameraStatus();
-                if (isMounted) {
-                    if (status && status.connected) {
-                        setCameraConnected(true);
-                        if (status.streamUrl) {
-                            setCameraUrl(status.streamUrl);
-                        }
-                    } else {
-                        setCameraConnected(false);
-                        setCameraFrame(null);
-                    }
+                const status = await fetchPiCameraStatus();
+                if (isMounted && status && status.connected) {
+                    setCameraConnected(true);
                 }
             } catch (_e) {
-                if (isMounted) {
-                    setCameraConnected(false);
-                    setCameraFrame(null);
+            } finally {
+                isFetchingCamRef.current = false;
+            }
+        };
+
+        const checkCropTelemetry = async () => {
+            if (!isMounted || scanMode !== 'auto') return;
+
+            if (isFetchingAiRef.current) {
+                if (isMounted && scanMode === 'auto') {
+                    cropPollTimeout = setTimeout(checkCropTelemetry, 1000);
+                }
+                return;
+            }
+
+            isFetchingAiRef.current = true;
+            try {
+                const resData = await fetchPiAiResults();
+                if (isMounted && resData) {
+                    const realCycle = resData.cycle_count || resData.crop_ai?.cycle_count || resData.timestamp;
+
+                    if (realCycle && realCycle === lastProcessedCycleRef.current) {
+                        console.log(`[CROP AI] mode=auto cycle=${realCycle} lastCycle=${lastProcessedCycleRef.current} NO NEW CYCLE`);
+                    } else {
+                        const frameUrl = `${getCropNutrientAiFrameUrl()}?frame=${realCycle || Date.now()}`;
+                        console.log(`[CROP AI] mode=auto cycle=${realCycle} lastCycle=${lastProcessedCycleRef.current} NEW CYCLE | FRAME=${frameUrl}`);
+                        
+                        lastProcessedCycleRef.current = realCycle;
+                        setContinuousPiResult(resData);
+                        setLiveCropAiFrameUrl(frameUrl);
+                        setAiFrameKey(realCycle || Date.now());
+                    }
+                }
+            } catch (err) {
+                console.warn(`[CROP AI] mode=auto ERROR:`, err?.message || err);
+            } finally {
+                isFetchingAiRef.current = false;
+                if (isMounted && scanMode === 'auto') {
+                    cropPollTimeout = setTimeout(checkCropTelemetry, 1000);
                 }
             }
         };
 
-        checkCamera();
-        const cameraInterval = setInterval(checkCamera, 8000);
-
-        const syncInterval = setInterval(() => {
-            fetchLatestSensorData().then(s => {
+        const updateSensors = async () => {
+            try {
+                const s = await fetchLatestSensorData();
                 if (s && isMounted) {
+                    setSensorData(s);
                     const isRaining = Boolean(s.rain_detected || s.rainDetected);
-                    const moist = Number(s.soil_moisture ?? 68);
+                    const moist = Number(s.soil_moisture ?? s.moisture ?? 68);
                     setWaterloggingData(evaluateWaterloggingRisk(isRaining, moist));
                 }
-            }).catch(() => {});
-        }, 15000);
+            } catch (_e) { }
+        };
+
+        checkCamera();
+        if (scanMode === 'auto') {
+            checkCropTelemetry();
+        }
+        updateSensors();
+
+        const cameraInterval = setInterval(checkCamera, 5000);
+        const syncInterval = setInterval(updateSensors, 3000);
+
+        // Visibility & focus listener: Trigger immediate check when tab becomes visible if scanMode is auto
+        const handleVisibilityOrFocus = () => {
+            if (document.visibilityState === 'visible') {
+                console.log(`[CROP AI] Tab/Window visible | mode=${scanMode}`);
+                isFetchingAiRef.current = false;
+                if (isMounted && scanMode === 'auto') {
+                    if (cropPollTimeout) clearTimeout(cropPollTimeout);
+                    checkCropTelemetry();
+                }
+            }
+        };
+
+        document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+        window.addEventListener('focus', handleVisibilityOrFocus);
 
         return () => {
             isMounted = false;
+            if (cropPollTimeout) clearTimeout(cropPollTimeout);
             destroyCharts();
             clearInterval(cameraInterval);
             clearInterval(syncInterval);
+            document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+            window.removeEventListener('focus', handleVisibilityOrFocus);
         };
-    }, []);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [scanMode]);
 
     const handleUpload = (e) => {
         const file = e.target.files?.[0];
@@ -89,21 +217,21 @@ const PlantHealthDashboard = () => {
         readImageFile(file, async (base64Img) => {
             setUploadedImage(base64Img);
             setIsAnalyzing(true);
-            setAiResult(null);
+            setManualAiResult(null);
 
             try {
                 const result = await analyzePlantDiseaseImage({
                     image: base64Img,
                     cropName: selectedCrop
                 });
-                if (result && result.disease_name && !result.isMock) {
-                    setAiResult(result);
+                if (result && (result.disease_name || result.disease)) {
+                    setManualAiResult(result);
                 } else {
-                    setAiResult(null);
+                    setManualAiResult(null);
                 }
             } catch (err) {
                 console.error('Plant AI inference error:', err);
-                setAiResult(null);
+                setManualAiResult(null);
             } finally {
                 setIsAnalyzing(false);
             }
@@ -113,72 +241,86 @@ const PlantHealthDashboard = () => {
     const clearUpload = () => {
         setUploadedImage(null);
         setIsAnalyzing(false);
-        setAiResult(null);
+        setManualAiResult(null);
     };
 
-    // Baseline Overview data (separated from ad-hoc manual image uploads)
-    const activeHealthScore = aiResult?.health_score || aiResult?.healthScore || '88/100';
-    const currentCropHealth = aiResult ? (aiResult.disease_risk === 'LOW' ? 'Optimal (Healthy)' : `Alert (${aiResult.disease || aiResult.disease_name})`) : 'Good (Optimal)';
-    const currentDiseaseRisk = aiResult?.disease_risk || 'LOW';
-    const currentNutrientStatus = 'OPTIMAL (BALANCED NPK)';
-    const currentTimestamp = aiResult ? 'Real-time YOLO scan' : 'Awaiting telemetry';
+    // Single source of truth Pi AI for Live Overview & Diagnostics
+    const hasPlant = continuousPiResult
+        ? (continuousPiResult.has_plant === true || continuousPiResult.crop_ai?.has_plant === true)
+        : false;
 
-    const activeAiImage = uploadedImage || (cameraConnected && cameraFrame ? cameraFrame : null);
+    const currentCropHealth = (!cameraConnected || !continuousPiResult || scanMode === 'stop')
+        ? 'N/A'
+        : (hasPlant ? (continuousPiResult.crop_ai?.label || 'Healthy Canopy') : 'No Plant Detected');
+
+    const currentPlantTypeLabel = (!cameraConnected || !continuousPiResult || scanMode === 'stop')
+        ? 'N/A'
+        : (hasPlant ? (continuousPiResult.crop_ai?.crop_name?.split(' (')?.[0] || 'Tomato') : 'No Plant Detected');
+
+    const currentPlantTypeSub = (!cameraConnected || !continuousPiResult || scanMode === 'stop')
+        ? ''
+        : (hasPlant ? (continuousPiResult.crop_ai?.crop_name?.includes('Tomato') ? 'Roma Tomato' : '') : '');
+    const currentPlantTypeSci = (!cameraConnected || !continuousPiResult || scanMode === 'stop')
+        ? ''
+        : (hasPlant ? 'Solanum lycopersicum' : '');
+
+    const activeHealthScore = (!cameraConnected || !continuousPiResult || scanMode === 'stop')
+        ? 'N/A'
+        : (hasPlant ? `${Math.round(continuousPiResult.crop_ai?.confidence || continuousPiResult.crop_ai?.health_score || 94)}/100` : 'N/A');
+
+    const currentDiseaseRisk = (!cameraConnected || !continuousPiResult || scanMode === 'stop')
+        ? 'N/A'
+        : (hasPlant ? (continuousPiResult.crop_ai?.disease_risk || 'LOW') : 'N/A');
+
+    const currentNutrientStatus = continuousPiResult?.nutrient_ai?.label || 'Unavailable (Nutrient model not found on Raspberry Pi)';
+
+    const currentTimestamp = (!cameraConnected || !continuousPiResult || scanMode === 'stop')
+        ? (cameraConnected ? 'Awaiting Telemetry' : 'N/A')
+        : (continuousPiResult?.pipeline?.last_inference_time
+            ? `Live Pi AI at ${continuousPiResult.pipeline.last_inference_time}`
+            : (continuousPiResult?.timestamp ? `Live Pi AI at ${new Date(continuousPiResult.timestamp).toLocaleTimeString()}` : 'Awaiting Telemetry'));
+
+    const activeAiImage = liveCropAiFrameUrl || `${getCropNutrientAiFrameUrl()}?frame=${aiFrameKey}`;
+
+    const currentSoilMoisture = sensorData?.soil_moisture !== undefined
+        ? `${Number(sensorData.soil_moisture).toFixed(2)}%`
+        : (sensorData?.moisture !== undefined ? `${Number(sensorData.moisture).toFixed(2)}%` : '68%');
 
     const getBoxesToRender = () => {
-        if (!aiResult) return [];
+        if (!continuousPiResult || !hasPlant) return [];
 
-        const rawBoxes = aiResult.bounding_boxes || aiResult.boxes || [];
-        if (rawBoxes.length > 0) {
-            return rawBoxes.map(b => {
-                if (b.x !== undefined && b.width !== undefined) {
-                    const isFraction = b.width <= 1.0 && b.height <= 1.0;
-                    return {
-                        left: isFraction ? b.x * 100 : b.x,
-                        top: isFraction ? b.y * 100 : b.y,
-                        width: isFraction ? b.width * 100 : b.width,
-                        height: isFraction ? b.height * 100 : b.height,
-                        label: b.label || b.class_name || aiResult.disease || '',
-                        conf: b.conf || (b.confidence ? Math.round(b.confidence * 100) : null)
-                    };
-                }
-                const origW = aiResult.image_width || 1;
-                const origH = aiResult.image_height || 1;
-                const x1 = b.x1 ?? b.bbox?.[0] ?? 0;
-                const y1 = b.y1 ?? b.bbox?.[1] ?? 0;
-                const x2 = b.x2 ?? b.bbox?.[2] ?? 0;
-                const y2 = b.y2 ?? b.bbox?.[3] ?? 0;
-                return {
-                    left: (x1 / origW) * 100,
-                    top: (y1 / origH) * 100,
-                    width: ((x2 - x1) / origW) * 100,
-                    height: ((y2 - y1) / origH) * 100,
-                    label: b.label || b.class_name || aiResult.disease || '',
-                    conf: b.conf || (b.confidence ? Math.round(b.confidence * 100) : null)
-                };
-            });
-        }
-
-        if (aiResult.detections && aiResult.detections.length > 0) {
-            const origW = aiResult.image_width || 1;
-            const origH = aiResult.image_height || 1;
-            return aiResult.detections.map(d => {
+        const detections = continuousPiResult.crop_ai?.detections || continuousPiResult.yolo?.detections || [];
+        if (detections.length > 0) {
+            return detections.map(d => {
                 const [x1, y1, x2, y2] = d.bbox || [0, 0, 0, 0];
                 return {
-                    left: (x1 / origW) * 100,
-                    top: (y1 / origH) * 100,
-                    width: ((x2 - x1) / origW) * 100,
-                    height: ((y2 - y1) / origH) * 100,
-                    label: d.class_name || aiResult.disease || '',
-                    conf: d.confidence_pct || (d.confidence ? Math.round(d.confidence * 100) : null)
+                    left: x1,
+                    top: y1,
+                    width: x2 - x1,
+                    height: y2 - y1,
+                    label: d.label || d.class_name || 'Plant Detected',
+                    conf: d.confidence ? Math.round(d.confidence) : null
                 };
             });
         }
-
         return [];
     };
 
     const renderedBoxes = getBoxesToRender();
+    const aiResult = manualAiResult || (hasPlant && continuousPiResult?.crop_ai ? {
+        disease_name: continuousPiResult.crop_ai.label || 'Healthy Canopy',
+        disease_risk: continuousPiResult.crop_ai.disease_risk || 'LOW',
+        confidence_score: Math.round(continuousPiResult.crop_ai.confidence || 94),
+        treatment_advice: continuousPiResult.crop_ai.recommendation || 'Soil moisture, root temperature, and vegetative growth index are within target parameters. Automated irrigation standby active.'
+    } : (continuousPiResult?.detected ? continuousPiResult : null));
+
+    console.log('[Crop Diagnostic Render]', {
+        uploadedImage: Boolean(uploadedImage),
+        continuousPiResult: Boolean(continuousPiResult),
+        cycle_count: continuousPiResult?.cycle_count,
+        aiFrameKey,
+        activeAiImage
+    });
 
     return (
         <div className="plant-health-page">
@@ -190,46 +332,179 @@ const PlantHealthDashboard = () => {
             <div className="ai-model">
 
                 <div className="head">
-                    <h1>CROP AI DETECTION</h1>
+                    <h1>{t('plantDash.cropAiDetection')}</h1>
                 </div>
 
                 <div className="ai-panels">
 
                     <div className="cam-panel live-camera">
                         <div className="cam-panel-header">
-                            <h2>LIVE CANOPY</h2>
+                            <h2>{t('plantDash.liveCanopy')}</h2>
                             <span className={`status-pill ${cameraConnected ? 'pill-online' : 'pill-idle'}`}>
                                 <span className="status-dot"></span>
-                                {cameraConnected ? 'Connected' : 'Disconnected'}
+                                {cameraConnected ? (language === 'hi' ? 'कनेक्टेड' : 'Connected') : (language === 'hi' ? 'डिस्कनेक्टेड' : 'Disconnected')}
                             </span>
                         </div>
 
-                        {!cameraConnected ? (
-                            <div className="canopy-empty-state">
-                                <svg className="empty-state-svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                                    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-                                    <line x1="1" y1="1" x2="23" y2="23" />
-                                </svg>
-                                <p className="empty-state-title">Waiting for camera...</p>
-                            </div>
-                        ) : !cameraFrame ? (
-                            <div className="canopy-empty-state">
-                                <span className="live-rec-dot"></span>
-                                <p className="empty-state-title">Waiting for camera feed...</p>
-                            </div>
-                        ) : (
-                            <div className="cam-frame">
-                                <img
-                                    src={cameraFrame}
-                                    alt="Live ESP32-CAM Canopy Feed"
-                                    className="cam-live-feed"
-                                />
-                                <div className="cam-hud-badge">
-                                    <span className="live-rec-dot"></span>
-                                    <span>LIVE STREAM</span>
+                        <div className="cam-frame" style={{ position: 'relative', width: '100%', height: '100%', minHeight: '220px' }}>
+                            <img
+                                key={streamSourceIndex}
+                                src={STREAM_SOURCES[streamSourceIndex]}
+                                alt="Live Canopy"
+                                className="cam-live-feed"
+                                onError={handleStreamError}
+                                onLoad={handleStreamLoad}
+                                style={{ width: '100%', height: '100%', objectFit: 'cover', display: cameraConnected ? 'block' : 'none' }}
+                            />
+                            {!cameraConnected && (
+                                <div className="canopy-empty-state">
+                                    <svg className="empty-state-svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                                        <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                                        <line x1="1" y1="1" x2="23" y2="23" />
+                                    </svg>
+                                    <p className="empty-state-title">Waiting for camera...</p>
+                                    <button
+                                        type="button"
+                                        style={{ marginTop: '10px', padding: '6px 14px', background: '#10b981', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '600', fontSize: '12px' }}
+                                        onClick={() => {
+                                            setStreamSourceIndex(0);
+                                            setCameraConnected(true);
+                                        }}
+                                    >
+                                        Retry Stream
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="cam-panel output-section">
+                        <div className="cam-panel-header">
+                            <h2>AI DIAGNOSTICS</h2>
+                            <span className={`status-pill ${uploadedImage ? (isAnalyzing ? 'pill-analyzing' : 'pill-upload') : (continuousPiResult ? (scanMode === 'auto' ? 'pill-online' : 'pill-idle') : 'pill-idle')}`}>
+                                <span className="status-dot"></span>
+                                {uploadedImage ? (isAnalyzing ? 'Analyzing' : 'Manual Verification') : (continuousPiResult ? (scanMode === 'auto' ? 'Live Pi AI' : 'AI Paused') : 'Awaiting Telemetry')}
+                            </span>
+                        </div>
+                        <div className="output-frame" style={{ position: 'relative', background: '#f8fafc', border: 'none' }}>
+                            <div className="ai-output-container">
+                                <div className="detection-image-container">
+                                    <img
+                                        key={aiFrameKey}
+                                        src={activeAiImage}
+                                        alt="Raspberry Pi Plant AI Live Output"
+                                        className="output-image"
+                                        onError={(e) => {
+                                            console.warn('[Crop Diagnostic Img Error] Failed to load image:', e.target.src);
+                                            if (!e.target.dataset.fallback) {
+                                                e.target.dataset.fallback = 'true';
+                                                e.target.src = `/api/ai/crop-nutrient-frame?frame=${aiFrameKey}`;
+                                            }
+                                        }}
+                                    />
+
+                                    {renderedBoxes.length > 0 && (
+                                        <div className="yolo-overlay">
+                                            {renderedBoxes.map((box, idx) => (
+                                                <div
+                                                    key={idx}
+                                                    className="yolo-bounding-box"
+                                                    style={{
+                                                        left: `${box.left}%`,
+                                                        top: `${box.top}%`,
+                                                        width: `${box.width}%`,
+                                                        height: `${box.height}%`
+                                                    }}
+                                                >
+                                                    {box.label && (
+                                                        <span className="yolo-box-label">
+                                                            {box.label} {box.conf ? `${box.conf}%` : ''}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
-                        )}
+                        </div>
+
+                        {/* 3 CONTROL BUTTONS DIRECTLY BELOW AI DIAGNOSTIC FRAME — WHITE THEMED */}
+                        <div className="ai-diagnostic-controls-bar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', padding: '12px', background: '#ffffff', borderTop: '1px solid #e2e8f0' }}>
+                            <button
+                                type="button"
+                                className={`scan-ctrl-btn ${scanMode === 'auto' ? 'active-auto' : ''}`}
+                                onClick={handleAutoScanClick}
+                                title="Start automatic 1-second Pi AI cycle checking"
+                                style={{
+                                    padding: '7px 16px',
+                                    fontSize: '11px',
+                                    fontWeight: '700',
+                                    borderRadius: '6px',
+                                    border: scanMode === 'auto' ? '1.5px solid #10b981' : '1px solid #cbd5e1',
+                                    background: scanMode === 'auto' ? '#ecfdf5' : '#ffffff',
+                                    color: scanMode === 'auto' ? '#047857' : '#475569',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    boxShadow: scanMode === 'auto' ? '0 2px 4px rgba(16, 185, 129, 0.15)' : 'none',
+                                    transition: 'all 0.2s ease'
+                                }}
+                            >
+                                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: scanMode === 'auto' ? '#10b981' : '#94a3b8' }}></span>
+                                AUTO SCAN {scanMode === 'auto' ? '(ACTIVE)' : ''}
+                            </button>
+
+                            <button
+                                type="button"
+                                className="scan-ctrl-btn btn-manual"
+                                onClick={triggerManualScan}
+                                disabled={isManualScanning}
+                                title="Trigger an immediate one-shot Pi AI refresh"
+                                style={{
+                                    padding: '7px 16px',
+                                    fontSize: '11px',
+                                    fontWeight: '700',
+                                    borderRadius: '6px',
+                                    border: isManualScanning ? '1.5px solid #3b82f6' : '1px solid #93c5fd',
+                                    background: isManualScanning ? '#eff6ff' : '#ffffff',
+                                    color: isManualScanning ? '#1d4ed8' : '#2563eb',
+                                    cursor: isManualScanning ? 'wait' : 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    transition: 'all 0.2s ease'
+                                }}
+                            >
+                                {isManualScanning ? 'SCANNING...' : 'MANUAL SCAN'}
+                            </button>
+
+                            <button
+                                type="button"
+                                className={`scan-ctrl-btn ${scanMode === 'stop' ? 'active-stop' : ''}`}
+                                onClick={handleStopClick}
+                                title="Freeze AI Diagnostic display and stop automatic 1s telemetry checking"
+                                style={{
+                                    padding: '7px 16px',
+                                    fontSize: '11px',
+                                    fontWeight: '700',
+                                    borderRadius: '6px',
+                                    border: scanMode === 'stop' ? '1.5px solid #ef4444' : '1px solid #cbd5e1',
+                                    background: scanMode === 'stop' ? '#fef2f2' : '#ffffff',
+                                    color: scanMode === 'stop' ? '#b91c1c' : '#475569',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    boxShadow: scanMode === 'stop' ? '0 2px 4px rgba(239, 68, 68, 0.15)' : 'none',
+                                    transition: 'all 0.2s ease'
+                                }}
+                            >
+                                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: scanMode === 'stop' ? '#ef4444' : '#94a3b8' }}></span>
+                                STOP {scanMode === 'stop' ? '(ACTIVE)' : ''}
+                            </button>
+                        </div>
                     </div>
 
                     <div className="cam-panel manual-upload">
@@ -256,6 +531,23 @@ const PlantHealthDashboard = () => {
                                             </div>
                                         )}
                                     </div>
+                                    {manualAiResult && !isAnalyzing && (
+                                        <div style={{ marginTop: '10px', padding: '8px 12px', background: 'rgba(255,255,255,0.06)', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.1)' }}>
+                                            <div style={{ fontSize: '13px', fontWeight: '700', color: '#10b981' }}>
+                                                {manualAiResult.disease_name || manualAiResult.disease || 'Specimen Analyzed'}
+                                            </div>
+                                            {manualAiResult.confidence_score && (
+                                                <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>
+                                                    Confidence: {Math.round(manualAiResult.confidence_score)}%
+                                                </div>
+                                            )}
+                                            {manualAiResult.treatment_advice && (
+                                                <div style={{ fontSize: '11px', color: '#cbd5e1', marginTop: '4px' }}>
+                                                    {manualAiResult.treatment_advice}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
                                     <div className="upload-actions">
                                         <label htmlFor="plantUpload" className="upload-label upload-label-secondary">
                                             Change Image
@@ -284,75 +576,7 @@ const PlantHealthDashboard = () => {
                         </div>
                     </div>
 
-                    <div className="cam-panel output-section">
-                        <div className="cam-panel-header">
-                            <h2>AI DIAGNOSTICS</h2>
-                            <span className={`status-pill ${isAnalyzing ? 'pill-analyzing' : (aiResult ? 'pill-online' : 'pill-idle')}`}>
-                                <span className="status-dot"></span>
-                                {isAnalyzing ? 'Analyzing...' : (aiResult ? 'Diagnosed' : 'Awaiting Analysis')}
-                            </span>
-                        </div>
-                        {!activeAiImage || (!isAnalyzing && !aiResult) ? (
-                            <div className="diagnostics-empty-state">
-                                <svg className="empty-state-svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                                    <circle cx="12" cy="12" r="10" />
-                                    <line x1="12" y1="8" x2="12" y2="12" />
-                                    <line x1="12" y1="16" x2="12.01" y2="16" />
-                                </svg>
-                                <p className="empty-state-title">
-                                    {isAnalyzing ? 'Analyzing...' : 'Waiting for image analysis'}
-                                </p>
-                            </div>
-                        ) : (
-                            <div className="output-frame" style={{ position: 'relative' }}>
-                                <div className="ai-output-container">
-                                    <div className="detection-image-container">
-                                        <img
-                                            src={activeAiImage}
-                                            alt="AI Detection Output"
-                                            className="output-image"
-                                        />
-
-                                        {isAnalyzing && (
-                                            <div className="ai-scanning-overlay">
-                                                <div className="scanner-laser-bar"></div>
-                                                <div className="scanning-hud-tag">
-                                                    <span className="radar-ping"></span>
-                                                    <span>Scanning...</span>
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        {!isAnalyzing && renderedBoxes.length > 0 && (
-                                            <div className="yolo-overlay">
-                                                {renderedBoxes.map((box, idx) => (
-                                                    <div
-                                                        key={idx}
-                                                        className="yolo-bounding-box"
-                                                        style={{
-                                                            left: `${box.left}%`,
-                                                            top: `${box.top}%`,
-                                                            width: `${box.width}%`,
-                                                            height: `${box.height}%`
-                                                        }}
-                                                    >
-                                                        {box.label && (
-                                                            <span className="yolo-box-label">
-                                                                {box.label} {box.conf ? `${box.conf}%` : ''}
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-
                 </div>
-
 
             </div>
 
@@ -370,7 +594,7 @@ const PlantHealthDashboard = () => {
 
                             <div className="status">
                                 <h2>CROP HEALTH</h2>
-                                <p className={`unit ${aiResult?.disease_risk === 'HIGH' ? 'text-hazard' : ''}`} id="cropHealth">
+                                <p className={`unit ${currentDiseaseRisk === 'HIGH' ? 'text-hazard' : ''}`} id="cropHealth">
                                     {currentCropHealth}
                                 </p>
                             </div>
@@ -378,25 +602,23 @@ const PlantHealthDashboard = () => {
                             <div className="box0">
                                 <h2>TYPE OF PLANT</h2>
                                 <p className="unit" id="plantType" style={{ fontSize: '24px', margin: '4px 0 2px 0' }}>
-                                    Tomato
+                                    {currentPlantTypeLabel}
                                 </p>
-                                <p style={{ fontSize: '13px', fontWeight: '600', color: '#40533b', margin: '0 0 2px 0' }}>
-                                    Roma Tomato
-                                </p>
-                                <p className="t1">
-                                    Solanum lycopersicum
-                                </p>
+                                {currentPlantTypeSub && (
+                                    <p style={{ fontSize: '13px', fontWeight: '600', color: '#40533b', margin: '0 0 2px 0' }}>
+                                        {currentPlantTypeSub}
+                                    </p>
+                                )}
+                                {currentPlantTypeSci && (
+                                    <p className="t1">
+                                        {currentPlantTypeSci}
+                                    </p>
+                                )}
                             </div>
 
                             <div className="box1">
                                 <h2>SOIL MOISTURE</h2>
-                                <p className="unit" id="soilMoisture">68%</p>
-                            </div>
-
-                            <div className="box2">
-                                <h2>SOIL TEMPERATURE</h2>
-                                <p className="unit" id="soilTemp">32</p>
-                                <p className="t1">°C</p>
+                                <p className="unit" id="soilMoisture">{currentSoilMoisture}</p>
                             </div>
 
                         </div>
@@ -415,44 +637,11 @@ const PlantHealthDashboard = () => {
                                 </p>
                             </div>
 
-                            <div className="box5">
-                                <h2>NUTRIENTS STATUS</h2>
-                                <p className="unit" id="nutrientStatus">{currentNutrientStatus}</p>
-                            </div>
-
                             <div className="box51">
                                 <h2>LAST UPDATED</h2>
                                 <p className="unit" id="lastUpdated">{currentTimestamp}</p>
                             </div>
 
-                        </div>
-
-                    </div>
-
-                    <div className="temp">
-
-                        <div className="box6">
-                            <h2>CURRENT SOIL TEMPERATURE</h2>
-                            <p className="unit" id="ct1">27.5</p>
-                            <p className="t1">Celsius</p>
-                        </div>
-
-                        <div className="box7">
-                            <h2>AVERAGE SOIL TEMPERATURE</h2>
-                            <p className="unit" id="ct2">27.5</p>
-                            <p className="t1">Celsius</p>
-                        </div>
-
-                        <div className="box8">
-                            <h2>MIN SOIL TEMPERATURE</h2>
-                            <p className="unit" id="ct3">27.5</p>
-                            <p className="t1">Celsius</p>
-                        </div>
-
-                        <div className="box9">
-                            <h2>MAX SOIL TEMPERATURE</h2>
-                            <p className="unit" id="ct4">27.5</p>
-                            <p className="t1">Celsius</p>
                         </div>
 
                     </div>
@@ -548,10 +737,6 @@ const PlantHealthDashboard = () => {
 
                         <div className="c1">
                             <canvas id="SoilMoistureTrend"></canvas>
-                        </div>
-
-                        <div className="c2">
-                            <canvas id="SoilTemperature"></canvas>
                         </div>
 
                         <div className="c3">

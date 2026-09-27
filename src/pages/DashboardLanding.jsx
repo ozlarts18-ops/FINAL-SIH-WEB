@@ -1,5 +1,4 @@
-import { useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import './DashboardLanding.css';
@@ -7,13 +6,8 @@ import './DashboardLanding.css';
 const DashboardLanding = () => {
     const { isAuthenticated, user, logout } = useAuth();
     const { language, toggleLanguage, t } = useLanguage();
-    const navigate = useNavigate();
 
-    useEffect(() => {
-        if (isAuthenticated) {
-            navigate('/dashboard/air');
-        }
-    }, [isAuthenticated, navigate]);
+    // Allow viewing user notification profile settings on /dashboard
 
     return (
         <div className="dl-container">
@@ -58,10 +52,11 @@ const DashboardLanding = () => {
                             <Link to="/dashboard/air" className="dl-btn-link">
                                 <button className="dl-btn">{t('auth.proceedBtn')}</button>
                             </Link>
+
                             <button
                                 className="dl-btn secondary"
                                 onClick={logout}
-                                style={{ marginTop: '12px', width: '100%' }}
+                                style={{ marginTop: '16px', width: '100%' }}
                             >
                                 {t('auth.logoutBtn')}
                             </button>

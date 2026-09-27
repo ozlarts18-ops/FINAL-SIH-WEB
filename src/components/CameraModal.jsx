@@ -12,7 +12,7 @@ const CameraModal = ({ isOpen, onClose, currentUrl, onUrlUpdated, isOnline = tru
 
     useEffect(() => {
         if (isOpen) {
-            setInputUrl(currentUrl || '');
+            Promise.resolve().then(() => setInputUrl(currentUrl || ''));
             fetchCameraStatus().then(st => {
                 if (st && st.flashLed !== undefined) {
                     setFlashActive(st.flashLed);
@@ -66,7 +66,6 @@ const CameraModal = ({ isOpen, onClose, currentUrl, onUrlUpdated, isOnline = tru
     };
 
     const directStreamUrl = inputUrl.startsWith('http') ? inputUrl : (inputUrl ? `http://${inputUrl}/stream` : '/api/camera/stream');
-    const directHost = inputUrl.replace(/^http:\/\//, '').replace(/\/stream\/?$/, '') || 'envirox-cam.local';
 
     return (
         <div className="camera-modal-backdrop" onClick={onClose}>

@@ -1,0 +1,20 @@
+[Unit]
+Description=EnviroX Raspberry Pi USB Camera Ingestion Service
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=vsit
+WorkingDirectory=/home/vsit/envirox-cam
+ExecStart=/home/vsit/envirox-cam/venv/bin/python /home/vsit/envirox-cam/capture_and_send.py
+Restart=on-failure
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+Environment=PYTHONUNBUFFERED=1
+Environment=ENVIROX_SERVER_URL=http://10.140.217.250:5173/api/camera/pi-frame
+Environment=ENVIROX_DEVICE_ID=raspberrypi
+
+[Install]
+WantedBy=multi-user.target

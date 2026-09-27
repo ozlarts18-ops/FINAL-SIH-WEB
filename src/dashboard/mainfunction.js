@@ -1,8 +1,27 @@
 import { Chart, registerables } from 'chart.js';
-import { fetchAirQualityLogs, fetchSystemEvents, fetchRecommendations } from '../api/dataService';
+import { fetchAirQualityLogs, fetchLightIntensityLogs, fetchSystemEvents, fetchRecommendations } from '../api/dataService';
 import { generateExecutiveReport } from '../utils/reportGenerator';
 
-Chart.register(...registerables);
+const emptyStatePlugin = {
+    id: 'emptyState',
+    afterDraw(chart) {
+        const { datasets } = chart.data;
+        const hasData = datasets && datasets.some(ds => ds.data && ds.data.length > 0 && ds.data.some(v => v !== null && v !== undefined && !isNaN(v)));
+        if (!hasData) {
+            const { ctx, width, height } = chart;
+            ctx.save();
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = '#64748b';
+            ctx.font = '600 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+            const isHi = (localStorage.getItem('envirox_language') || 'en') === 'hi';
+            ctx.fillText(isHi ? 'कोई डेटा उपलब्ध नहीं है' : 'NO DATA AVAILABLE', width / 2, height / 2);
+            ctx.restore();
+        }
+    }
+};
+
+Chart.register(...registerables, emptyStatePlugin);
 
 export function calculateHeatIndex(tempC, humidity) {
     if (tempC === null || humidity === null || isNaN(tempC) || isNaN(humidity)) return 28.0;
@@ -211,24 +230,40 @@ const safeDestroy = (canvasEl) => {
     }
 };
 
+const safeFormatTime = (ts) => {
+    if (!ts) return null;
+    const d = new Date(ts);
+    return isNaN(d.getTime()) ? null : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+};
+
 export const syncAirDataFromSupabase = async () => {
     try {
-        const { data, source, error } = await fetchAirQualityLogs(50);
-        if (error) throw new Error(error);
+        const [airRes, lightRes, eventsRes, recsRes] = await Promise.allSettled([
+            fetchAirQualityLogs(50),
+            fetchLightIntensityLogs(50),
+            fetchSystemEvents('air', 5),
+            fetchRecommendations('air', 6)
+        ]);
 
-        if (data && data.length > 0) {
-            console.log(`[Air Quality Data] Loaded ${data.length} records from: ${source}`);
-            const labels = data.map((d) => {
-                const date = new Date(d.recorded_at);
-                return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-            });
+        const getDocTime = (d) => d?.recorded_at || d?.detected_at || d?.event_time || d?.created_at || d?.last_synced_at || d?.updated_at;
 
-            const temps = data
-                .map((d) => Number(d.current_temperature))
-                .filter((v) => typeof v === 'number' && !isNaN(v) && isFinite(v));
-            const hums = data
-                .map((d) => Number(d.current_humidity))
-                .filter((v) => typeof v === 'number' && !isNaN(v) && isFinite(v));
+        if (airRes.status === 'fulfilled' && airRes.value.data?.length > 0) {
+            const rawAir = airRes.value.data.slice().reverse();
+            console.log(`[Air Quality Data] Loaded ${rawAir.length} records from: ${airRes.value.source}`);
+            const validRecords = rawAir.filter(d => d && getDocTime(d));
+            const labels = validRecords.map((d, i) => safeFormatTime(getDocTime(d)) || `Log #${i + 1}`);
+
+            const tempVals = validRecords.map((d) => Number(d.current_temperature ?? 28));
+            const humVals = validRecords.map((d) => Number(d.current_humidity ?? 70));
+
+            let lightVals = validRecords.map((d) => Number(d.current_lux ?? d.lux_value ?? 500));
+            if (lightRes.status === 'fulfilled' && lightRes.value.data?.length > 0) {
+                const rawLight = lightRes.value.data.slice().reverse();
+                lightVals = rawLight.map(d => Number(d.lux_value ?? 500));
+            }
+
+            const temps = tempVals.filter((v) => typeof v === 'number' && !isNaN(v) && isFinite(v));
+            const hums = humVals.filter((v) => typeof v === 'number' && !isNaN(v) && isFinite(v));
 
             const avgTemp = temps.length ? (temps.reduce((a, b) => a + b, 0) / temps.length).toFixed(1) : 'N/A';
             const minTemp = temps.length ? Math.min(...temps).toFixed(1) : 'N/A';
@@ -239,33 +274,37 @@ export const syncAirDataFromSupabase = async () => {
             const maxHum = hums.length ? Math.max(...hums).toFixed(1) : 'N/A';
 
             if (labels.length > 0) {
-                humidityData.daily = { labels, values: data.map((d) => Number(d.current_humidity ?? 70)) };
-                temperatureData.daily = { labels, values: data.map((d) => Number(d.current_temperature ?? 28)) };
-                lightData.daily = { labels, values: data.map((d) => Number(d.current_lux ?? d.lux_value ?? 500)) };
+                humidityData.daily = { labels, values: humVals };
+                temperatureData.daily = { labels, values: tempVals };
+                lightData.daily = { labels, values: lightVals };
+
+                humidityData.weekly = { labels: labels.slice(-7), values: humVals.slice(-7) };
+                temperatureData.weekly = { labels: labels.slice(-7), values: tempVals.slice(-7) };
+                lightData.weekly = { labels: labels.slice(-7), values: lightVals.slice(-7) };
+
+                humidityData.monthly = { labels: labels.slice(-30), values: humVals.slice(-30) };
+                temperatureData.monthly = { labels: labels.slice(-30), values: tempVals.slice(-30) };
+                lightData.monthly = { labels: labels.slice(-30), values: lightVals.slice(-30) };
             }
 
-            const latest = data[data.length - 1];
+            const latest = validRecords[validRecords.length - 1] || rawAir[rawAir.length - 1];
             updateAirOverviewDOM(latest, { avgTemp, minTemp, maxTemp, avgHum, minHum, maxHum });
         }
 
-        try {
-            const { data: eventsData } = await fetchSystemEvents('air');
-            if (eventsData && eventsData.length > 0) {
-                airEvents = eventsData.map((ev) => ({
-                    time: new Date(ev.created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                    icon: '',
-                    title: (ev.title || 'ATMOSPHERIC NOTIFICATION').toUpperCase(),
-                    level: ev.severity || 'low',
-                    details: Array.isArray(ev.details) ? ev.details : [ev.description || 'Sensor telemetry updated']
-                }));
-            }
-        } catch {}
-        try {
-            const { data: recData } = await fetchRecommendations('air');
-            if (recData && recData.length > 0) {
-                airRecommendations = recData.map((r) => r.recommendation_text || r);
-            }
-        } catch {}} catch (err) {
+        if (eventsRes.status === 'fulfilled' && eventsRes.value.data?.length > 0) {
+            airEvents = eventsRes.value.data.map((ev) => ({
+                time: safeFormatTime(getDocTime(ev)) || '08:00 AM',
+                icon: '',
+                title: (ev.title || 'ATMOSPHERIC NOTIFICATION').toUpperCase(),
+                level: ev.severity || 'low',
+                details: Array.isArray(ev.details) ? ev.details : [ev.description || 'Sensor telemetry updated']
+            }));
+        }
+
+        if (recsRes.status === 'fulfilled' && recsRes.value.data?.length > 0) {
+            airRecommendations = recsRes.value.data.map((r) => r.recommendation_text || r);
+        }
+    } catch (err) {
         console.warn('Air pollution data loading fallback:', err.message || err);
     }
 };
@@ -316,7 +355,7 @@ export const initCharts = async () => {
 };
 
 const renderCharts = (timeframe = 'daily') => {
-    destroyCharts();
+    const isHi = (localStorage.getItem('envirox_language') || 'en') === 'hi';
 
     const tLabels = temperatureData[timeframe]?.labels || ['8 AM', '10 AM', '12 PM', '2 PM', '4 PM', '6 PM', '8 PM'];
     const tValues = temperatureData[timeframe]?.values || [26.4, 28.1, 30.8, 31.9, 30.2, 28.5, 27.0];
@@ -335,7 +374,7 @@ const renderCharts = (timeframe = 'daily') => {
             data: {
                 labels: tLabels,
                 datasets: [{
-                    label: 'Temperature (°C)',
+                    label: isHi ? 'तापमान (°C)' : 'Temperature (°C)',
                     data: tValues,
                     backgroundColor: 'rgba(39, 174, 96, 0.15)',
                     borderColor: '#27ae60',
@@ -353,12 +392,12 @@ const renderCharts = (timeframe = 'daily') => {
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
-                    title: { display: true, text: 'Temperature Profile (DHT22 - °C)' },
+                    title: { display: true, text: isHi ? 'तापमान प्रोफ़ाइल (DHT22 - °C)' : 'Temperature Profile (DHT22 - °C)' },
                     legend: { display: true }
                 },
                 scales: {
-                    x: { title: { display: true, text: 'Time' }, grid: { color: 'rgba(0,0,0,0.05)' } },
-                    y: { title: { display: true, text: 'Celsius (°C)' }, grid: { color: 'rgba(0,0,0,0.05)' } }
+                    x: { title: { display: true, text: isHi ? 'समय' : 'Time' }, grid: { color: 'rgba(0,0,0,0.05)' } },
+                    y: { title: { display: true, text: isHi ? 'सेल्सियस (°C)' : 'Celsius (°C)' }, grid: { color: 'rgba(0,0,0,0.05)' } }
                 }
             }
         });
@@ -372,7 +411,7 @@ const renderCharts = (timeframe = 'daily') => {
             data: {
                 labels: tLabels,
                 datasets: [{
-                    label: 'Humidity (%)',
+                    label: isHi ? 'आर्द्रता (%)' : 'Humidity (%)',
                     data: hValues,
                     backgroundColor: 'rgba(41, 128, 185, 0.15)',
                     borderColor: '#2980b9',
@@ -390,12 +429,12 @@ const renderCharts = (timeframe = 'daily') => {
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
-                    title: { display: true, text: 'Relative Humidity Trend (DHT22 - %)' },
+                    title: { display: true, text: isHi ? 'सापेक्ष आर्द्रता प्रवृत्ति (DHT22 - %)' : 'Relative Humidity Trend (DHT22 - %)' },
                     legend: { display: true }
                 },
                 scales: {
-                    x: { title: { display: true, text: 'Time' }, grid: { color: 'rgba(0,0,0,0.05)' } },
-                    y: { min: 0, max: 100, title: { display: true, text: 'Relative Humidity (%)' }, grid: { color: 'rgba(0,0,0,0.05)' } }
+                    x: { title: { display: true, text: isHi ? 'समय' : 'Time' }, grid: { color: 'rgba(0,0,0,0.05)' } },
+                    y: { min: 0, max: 100, title: { display: true, text: isHi ? 'सापेक्ष आर्द्रता (%)' : 'Relative Humidity (%)' }, grid: { color: 'rgba(0,0,0,0.05)' } }
                 }
             }
         });
@@ -409,7 +448,7 @@ const renderCharts = (timeframe = 'daily') => {
             data: {
                 labels: tLabels,
                 datasets: [{
-                    label: 'Light Intensity (Lux)',
+                    label: isHi ? 'प्रकाश की तीव्रता (Lux)' : 'Light Intensity (Lux)',
                     data: lValues,
                     backgroundColor: 'rgba(243, 156, 18, 0.55)',
                     borderColor: '#d68910',
@@ -421,12 +460,12 @@ const renderCharts = (timeframe = 'daily') => {
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
-                    title: { display: true, text: 'Light Intensity (BH1750 - Lux)' },
+                    title: { display: true, text: isHi ? 'प्रकाश की तीव्रता (BH1750 - Lux)' : 'Light Intensity (BH1750 - Lux)' },
                     legend: { display: true }
                 },
                 scales: {
-                    x: { title: { display: true, text: 'Time' }, grid: { display: false } },
-                    y: { beginAtZero: true, title: { display: true, text: 'Lux (lx)' }, grid: { color: 'rgba(0,0,0,0.05)' } }
+                    x: { title: { display: true, text: isHi ? 'समय' : 'Time' }, grid: { display: false } },
+                    y: { beginAtZero: true, title: { display: true, text: isHi ? 'लक्स (lx)' : 'Lux (lx)' }, grid: { color: 'rgba(0,0,0,0.05)' } }
                 }
             }
         });
@@ -441,7 +480,7 @@ const renderCharts = (timeframe = 'daily') => {
                 labels: tLabels,
                 datasets: [
                     {
-                        label: 'Temperature (°C)',
+                        label: isHi ? 'तापमान (°C)' : 'Temperature (°C)',
                         data: tValues,
                         borderColor: '#27ae60',
                         backgroundColor: 'rgba(39, 174, 96, 0.08)',
@@ -452,7 +491,7 @@ const renderCharts = (timeframe = 'daily') => {
                         pointRadius: 4
                     },
                     {
-                        label: 'Heat Index (°C)',
+                        label: isHi ? 'हीट इंडेक्स (°C)' : 'Heat Index (°C)',
                         data: hiValues,
                         borderColor: '#e67e22',
                         backgroundColor: 'transparent',
@@ -463,7 +502,7 @@ const renderCharts = (timeframe = 'daily') => {
                         pointRadius: 3
                     },
                     {
-                        label: 'Humidity (%)',
+                        label: isHi ? 'आर्द्रता (%)' : 'Humidity (%)',
                         data: hValues,
                         borderColor: '#2980b9',
                         backgroundColor: 'rgba(41, 128, 185, 0.05)',
@@ -474,7 +513,7 @@ const renderCharts = (timeframe = 'daily') => {
                         pointRadius: 4
                     },
                     {
-                        label: 'Light Intensity (Lux / 20)',
+                        label: isHi ? 'प्रकाश तीव्रता (Lux / 20)' : 'Light Intensity (Lux / 20)',
                         data: lValues.map(v => Math.round(v / 20)),
                         borderColor: '#f1c40f',
                         backgroundColor: 'transparent',
@@ -494,16 +533,16 @@ const renderCharts = (timeframe = 'daily') => {
                     intersect: false
                 },
                 plugins: {
-                    title: { display: true, text: '24h Multi-Sensor Microclimate & Atmospheric Dynamics', font: { size: 15, weight: 'bold' } },
+                    title: { display: true, text: isHi ? '24 घंटे मल्टी-सेंसर सूक्ष्म जलवायु एवं वायुमंडलीय गतिशीलता' : '24h Multi-Sensor Microclimate & Atmospheric Dynamics', font: { size: 15, weight: 'bold' } },
                     legend: { display: true, position: 'top' }
                 },
                 scales: {
-                    x: { title: { display: true, text: 'Timeline' }, grid: { color: 'rgba(0,0,0,0.05)' } },
+                    x: { title: { display: true, text: isHi ? 'समय रेखा' : 'Timeline' }, grid: { color: 'rgba(0,0,0,0.05)' } },
                     yTemp: {
                         type: 'linear',
                         display: true,
                         position: 'left',
-                        title: { display: true, text: 'Temperature & Heat Index (°C)' },
+                        title: { display: true, text: isHi ? 'तापमान एवं हीट इंडेक्स (°C)' : 'Temperature & Heat Index (°C)' },
                         grid: { color: 'rgba(0,0,0,0.05)' }
                     },
                     yHum: {
@@ -512,7 +551,7 @@ const renderCharts = (timeframe = 'daily') => {
                         position: 'right',
                         min: 0,
                         max: 100,
-                        title: { display: true, text: 'Humidity (%) / Scaled Lux' },
+                        title: { display: true, text: isHi ? 'आर्द्रता (%) / अनुपादित लक्स' : 'Humidity (%) / Scaled Lux' },
                         grid: { drawOnChartArea: false }
                     }
                 }
@@ -528,7 +567,7 @@ const renderCharts = (timeframe = 'daily') => {
             data: {
                 labels: tLabels,
                 datasets: [{
-                    label: 'Heat Index (°C)',
+                    label: isHi ? 'हीट इंडेक्स (°C)' : 'Heat Index (°C)',
                     data: hiValues,
                     backgroundColor: 'rgba(230, 126, 34, 0.15)',
                     borderColor: '#e67e22',
@@ -543,12 +582,12 @@ const renderCharts = (timeframe = 'daily') => {
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
-                    title: { display: true, text: 'Heat Index (Thermal Load - °C)' },
+                    title: { display: true, text: isHi ? 'हीट इंडेक्स (थर्मल भार - °C)' : 'Heat Index (Thermal Load - °C)' },
                     legend: { display: true }
                 },
                 scales: {
-                    x: { title: { display: true, text: 'Time' }, grid: { color: 'rgba(0,0,0,0.05)' } },
-                    y: { title: { display: true, text: 'Celsius (°C)' }, grid: { color: 'rgba(0,0,0,0.05)' } }
+                    x: { title: { display: true, text: isHi ? 'समय' : 'Time' }, grid: { color: 'rgba(0,0,0,0.05)' } },
+                    y: { title: { display: true, text: isHi ? 'सेल्सियस (°C)' : 'Celsius (°C)' }, grid: { color: 'rgba(0,0,0,0.05)' } }
                 }
             }
         });
@@ -562,7 +601,7 @@ const renderCharts = (timeframe = 'daily') => {
             data: {
                 labels: tLabels,
                 datasets: [{
-                    label: 'Dew Point (°C)',
+                    label: isHi ? 'ओसांक (Dew Point - °C)' : 'Dew Point (°C)',
                     data: dpValues,
                     backgroundColor: 'rgba(22, 160, 133, 0.15)',
                     borderColor: '#16a085',
@@ -577,12 +616,12 @@ const renderCharts = (timeframe = 'daily') => {
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
-                    title: { display: true, text: 'Dew Point & Saturation (°C)' },
+                    title: { display: true, text: isHi ? 'ओसांक एवं संतृप्ति (°C)' : 'Dew Point & Saturation (°C)' },
                     legend: { display: true }
                 },
                 scales: {
-                    x: { title: { display: true, text: 'Time' }, grid: { color: 'rgba(0,0,0,0.05)' } },
-                    y: { title: { display: true, text: 'Dew Point (°C)' }, grid: { color: 'rgba(0,0,0,0.05)' } }
+                    x: { title: { display: true, text: isHi ? 'समय' : 'Time' }, grid: { color: 'rgba(0,0,0,0.05)' } },
+                    y: { title: { display: true, text: isHi ? 'ओसांक (°C)' : 'Dew Point (°C)' }, grid: { color: 'rgba(0,0,0,0.05)' } }
                 }
             }
         });
@@ -596,7 +635,7 @@ const renderCharts = (timeframe = 'daily') => {
             data: {
                 labels: tLabels,
                 datasets: [{
-                    label: 'VPD (kPa)',
+                    label: isHi ? 'वाष्प दबाव घाटा (VPD - kPa)' : 'VPD (kPa)',
                     data: vpdValues,
                     backgroundColor: 'rgba(142, 68, 173, 0.15)',
                     borderColor: '#8e44ad',
@@ -644,7 +683,7 @@ export const downloadReport = (type) => {
     const lux = document.getElementById('lux')?.innerText || '650';
     const smk = document.getElementById('smk')?.innerText || 'Clean (12 ppm)';
     const rain = document.getElementById('rain')?.innerText || 'Clear / No Rain';
-    const buzzer = document.getElementById('buzzer')?.innerText || 'STANDBY';
+    const _buzzer = document.getElementById('buzzer')?.innerText || 'STANDBY';
     const exf = document.getElementById('exf')?.innerText || 'AUTO ACTIVE';
     
     const curTemp = document.getElementById('ct1')?.innerText || '26.5';

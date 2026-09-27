@@ -3,6 +3,8 @@ let currentUtterance = null;
 let isSpeakingState = false;
 let stateChangeListeners = [];
 
+export const getCurrentUtterance = () => currentUtterance;
+
 export const subscribeSpeechState = (listener) => {
     stateChangeListeners.push(listener);
     return () => {
@@ -38,7 +40,7 @@ export const speakAdvisory = (text, lang = 'hi-IN', onEnd = null) => {
 
     const cleanText = text
         .replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '')
-        .replace(/[\*\#\_\~]/g, '')
+        .replace(/[*#_~]/g, '')
         .trim();
 
     if (!cleanText) return false;
@@ -47,7 +49,7 @@ export const speakAdvisory = (text, lang = 'hi-IN', onEnd = null) => {
     currentUtterance = utterance;
 
     const voices = window.speechSynthesis.getVoices();
-    let selectedVoice = null;
+    let selectedVoice;
 
     if (lang === 'hi' || lang === 'hi-IN') {
         selectedVoice = voices.find(v => v.lang.includes('hi')) || voices.find(v => v.lang.includes('IN'));

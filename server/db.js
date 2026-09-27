@@ -1,27 +1,21 @@
-import pg from 'pg';
+/**
+ * DEPRECATED POSTGRESQL DRIVER STUB
+ * EnviroX has been migrated to MongoDB (Primary DB) + Redis (Fast Cache).
+ * This module is kept for safety and backward compatibility checks.
+ */
 
-const LOCAL_PG_URI = process.env.PGSQL_MCP_CONNECTION_STRING || 'postgresql://postgres:ossie%40123%24@localhost:4000/IOTrex';
+export const pool = {
+    query: async () => {
+        throw new Error('PostgreSQL has been fully decommissioned. Use MongoDB + Redis (syncEngine.js / mongoDb.js).');
+    },
+    on: () => {},
+    end: async () => {}
+};
 
-export const pool = new pg.Pool({
-    connectionString: LOCAL_PG_URI,
-    max: 10,
-    idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 2000,
-});
-
-pool.on('error', (err) => {
-    console.error('Unexpected error on idle PostgreSQL client', err);
-});
-
-export const query = async (text, params) => {
-    return await pool.query(text, params);
+export const query = async () => {
+    throw new Error('PostgreSQL has been fully decommissioned. Use MongoDB + Redis (syncEngine.js / mongoDb.js).');
 };
 
 export const checkPgHealth = async () => {
-    try {
-        const res = await pool.query('SELECT 1 AS ok');
-        return { status: 'healthy', ok: res.rows[0].ok === 1 };
-    } catch (err) {
-        return { status: 'unhealthy', error: err.message };
-    }
+    return { status: 'decommissioned', message: 'Migrated to MongoDB (Primary) + Redis (Fast Cache)' };
 };

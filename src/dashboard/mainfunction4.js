@@ -11,7 +11,7 @@ const emptyStatePlugin = {
     id: 'emptyState',
     afterDraw(chart) {
         const { datasets } = chart.data;
-        const hasData = datasets && datasets.some(ds => ds.data && ds.data.length > 0 && ds.data.some(v => v !== null && v !== undefined && v > 0));
+        const hasData = datasets && datasets.some(ds => ds.data && ds.data.length > 0 && ds.data.some(v => v !== null && v !== undefined && !isNaN(v)));
         if (!hasData) {
             const { ctx, width, height } = chart;
             ctx.save();
@@ -19,10 +19,18 @@ const emptyStatePlugin = {
             ctx.textBaseline = 'middle';
             ctx.fillStyle = '#64748b';
             ctx.font = '500 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-            ctx.fillText('No data available', width / 2, height / 2);
+            const isHi = (localStorage.getItem('envirox_language') || 'en') === 'hi';
+            ctx.fillText(isHi ? 'कोई डेटा उपलब्ध नहीं है' : 'No data available', width / 2, height / 2);
             ctx.restore();
         }
     }
+};
+
+const safeFormatTime = (ts) => {
+    if (!ts) return '';
+    const d = new Date(ts);
+    if (isNaN(d.getTime())) return String(ts);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 };
 
 Chart.register(...registerables, emptyStatePlugin);
@@ -189,16 +197,21 @@ export const syncPestDataFromSupabase = async () => {
             fetchRecommendations('pest_detection', 6)
         ]);
 
+        const getDocTime = (d) => d?.detected_at || d?.recorded_at || d?.event_time || d?.created_at || d?.last_synced_at || d?.updated_at;
+
         if (pestRes.status === 'fulfilled' && pestRes.value.data?.length > 0) {
-            const data = pestRes.value.data;
+            const rawData = pestRes.value.data.slice().reverse();
+            const data = rawData.filter(d => d && getDocTime(d));
             
             // 1. Pest Detection Trend: Real timestamps and pest counts
-            const labels = data.map(d => new Date(d.detected_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+            const labels = data.map((d, i) => safeFormatTime(getDocTime(d)) || `Scan #${i + 1}`);
             const trendValues = data.map(d => Number(d.pest_count ?? 1));
             pestDetectionTrendData.daily = {
                 labels,
                 values: trendValues
             };
+            pestDetectionTrendData.weekly = { labels: labels.slice(-7), values: trendValues.slice(-7) };
+            pestDetectionTrendData.monthly = { labels: labels.slice(-30), values: trendValues.slice(-30) };
 
             // 2. Pest Type Distribution: Real detected pest frequencies
             const typeMap = {};
@@ -247,13 +260,15 @@ export const syncPestDataFromSupabase = async () => {
                 labels,
                 values: trendValues
             };
+            pestActivityTimeData.weekly = { labels: labels.slice(-7), values: trendValues.slice(-7) };
+            pestActivityTimeData.monthly = { labels: labels.slice(-30), values: trendValues.slice(-30) };
         }
 
         if (eventsRes.status === 'fulfilled' && eventsRes.value.data?.length > 0) {
             pestEvents = eventsRes.value.data.map(ev => ({
-                time: new Date(ev.event_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                time: safeFormatTime(getDocTime(ev)) || '08:40 AM',
                 icon: '',
-                title: ev.title,
+                title: ev.title || 'PEST EVENT',
                 level: ev.event_level || 'medium',
                 details: Array.isArray(ev.details) ? ev.details : []
             }));
@@ -327,8 +342,6 @@ export const initCharts = async () => {
 };
 
 const renderCharts = (filter = 'daily') => {
-    destroyCharts();
-
     // 1. PEST DETECTION TREND (Line chart: Date/Time vs Detected Pests)
     const trendEl = document.getElementById('PestDetectionTrendChart');
     if (trendEl) {

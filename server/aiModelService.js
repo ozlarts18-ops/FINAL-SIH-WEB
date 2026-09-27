@@ -214,9 +214,27 @@ export function runPestDetectionAI(options = {}) {
     if (options.forceClass) {
         chosen = PEST_DATABASE.find(p => p.name.toLowerCase().includes(options.forceClass.toLowerCase()));
     }
+    
+    if (!chosen && !options.image && !options.forceClass) {
+        return {
+            model_info: PEST_MODEL_METADATA,
+            inference_time_ms: 0.0,
+            detected_pest: "No Pest Detected",
+            pest_count: 0,
+            severity_level: "None",
+            ai_confidence: null,
+            sector_zone: "Sector B (Stem Zone)",
+            urgency: "None",
+            recommended_action: "No active pests detected. Maintain standard canopy monitoring.",
+            bounding_box: null,
+            bounding_boxes: [],
+            treatment_applied: false,
+            detected_at: new Date().toISOString()
+        };
+    }
+
     if (!chosen) {
-        const idx = Math.floor(Math.random() * PEST_DATABASE.length);
-        chosen = PEST_DATABASE[idx];
+        chosen = PEST_DATABASE[PEST_DATABASE.length - 1]; // No threat
     }
 
     const confMin = chosen.confidence_range[0];
@@ -231,21 +249,9 @@ export function runPestDetectionAI(options = {}) {
         }
     ];
 
-    if (chosen.pest_count > 10 && chosen.name !== "Beneficial Ladybug / No Threat") {
-        boxes.push({
-            x: Math.min(65, Math.max(15, chosen.bounding_box.x + 22)),
-            y: Math.min(65, Math.max(15, chosen.bounding_box.y + 18)),
-            width: Math.round(chosen.bounding_box.width * 0.65),
-            height: Math.round(chosen.bounding_box.height * 0.65),
-            label: "Sub-cluster",
-            conf: +(confidence - (Math.random() * 2 + 1)).toFixed(1)
-        });
-    }
-
     return {
         model_info: PEST_MODEL_METADATA,
         inference_time_ms: 38.4,
-        target_crop: options.cropName || 'Tomato (Solanum lycopersicum)',
         detected_pest: chosen.name,
         pest_count: chosen.pest_count,
         severity_level: chosen.severity,
@@ -825,7 +831,7 @@ export function calculateEvapotranspiration(tempC = 30.0, humidity = 65.0, lux =
     };
 }
 
-export function evaluateWaterloggingAndFloodRisk(rainDetected = false, soilMoisture = 60.0, continuousRainMinutes = 0) {
+export function evaluateWaterloggingAndFloodRisk(rainDetected = false, soilMoisture = 60.0, _continuousRainMinutes = 0) {
     const isRaining = Boolean(rainDetected);
     const moisture = Number(soilMoisture);
 

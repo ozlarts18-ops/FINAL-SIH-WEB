@@ -1,7 +1,7 @@
 import { getCollection } from './mongoDb.js';
-import { query } from './db.js';
 
 export const DEFAULT_ACTUATORS = [
+    { actuator_type: 'grow_lights', name: '💡 Grow Light', current_state: 'OFF', control_mode: 'AUTOMATIC', pin: 11 },
     { actuator_type: 'water_pump', name: '💧 Water Pump', current_state: 'OFF', control_mode: 'AUTOMATIC', pin: 12 },
     { actuator_type: 'filter_unit', name: '🧪 Water Filtration Unit', current_state: 'ON', control_mode: 'AUTOMATIC', pin: 13 },
     { actuator_type: 'exhaust_fan', name: '💨 Exhaust Fan & Air Filter', current_state: 'ON', control_mode: 'AUTOMATIC', pin: 14 },
@@ -11,6 +11,7 @@ export const DEFAULT_ACTUATORS = [
 export async function getActuatorStates() {
     try {
         const col = await getCollection('device_controls');
+        if (!col) return DEFAULT_ACTUATORS;
         let controls = await col.find().toArray();
 
         if (!controls || controls.length === 0) {
@@ -31,19 +32,98 @@ export async function getActuatorStates() {
     }
 }
 
-export async function setActuatorState(actuatorType, action = 'AUTO') {
+async function sendCommandToESP32Node(baseUrl, command) {
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 4000);
+        const res = await fetch(`${baseUrl}/api/control`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ command }),
+            signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        if (res.ok) {
+            const json = await res.json();
+            console.log(`✅ [ESP32 Relay Command Success] ${baseUrl}/api/control ->`, json);
+            return json;
+        } else {
+            console.warn(`⚠️ [ESP32 Relay Command Warning] ${baseUrl}/api/control returned HTTP ${res.status}`);
+        }
+    } catch (err) {
+        console.warn(`⚠️ [ESP32 Relay Command Error] ${baseUrl}/api/control -> ${err.message}`);
+    }
+    return null;
+}
+
+export async function setActuatorState(actuatorType, action = 'AUTO', options = {}) {
     const actUpper = String(action).toUpperCase();
+    let commandStr = 'AUTO';
+    if (actUpper === 'ON' || actUpper === 'MANUAL_ON') commandStr = 'MANUAL_ON';
+    else if (actUpper === 'OFF' || actUpper === 'MANUAL_OFF') commandStr = 'MANUAL_OFF';
+    else commandStr = 'AUTO';
+
+    let targetBaseUrl = null;
+    if (actuatorType === 'grow_lights' || actuatorType === 'grow_light') {
+        targetBaseUrl = 'http://node1.local';
+    } else if (actuatorType === 'water_pump' || actuatorType === 'pump' || actuatorType === 'filter_unit') {
+        targetBaseUrl = 'http://node2.local';
+    }
+
+    // Safety Lockout 1: Check water tank level if commanding Water Pump ON
+    if ((actuatorType === 'water_pump' || actuatorType === 'pump') && commandStr === 'MANUAL_ON' && !options.force) {
+        try {
+            const { getUnifiedSensorData } = await import('./esp32SerialService.js');
+            const data = getUnifiedSensorData();
+            const tankLevel = data.node2?.data?.water_tank_level_percent ?? data.water_tank_level_percent;
+            const waterDist = data.node2?.data?.water_distance_cm;
+            if (tankLevel !== null && tankLevel <= 0 && waterDist !== undefined && waterDist > 50) {
+                throw new Error('Safety Lockout: Water tank is EMPTY (0%). Water pump operation blocked to prevent motor burnout.');
+            }
+        } catch (safetyErr) {
+            if (safetyErr.message.includes('Safety Lockout')) {
+                throw safetyErr;
+            }
+        }
+    }
+
+    let esp32Result = null;
+    if (targetBaseUrl) {
+        console.log(`📡 [Sending Hardware Actuator Command] ${targetBaseUrl}/api/control -> command: ${commandStr}`);
+        esp32Result = await sendCommandToESP32Node(targetBaseUrl, commandStr);
+
+        if (!esp32Result) {
+            throw new Error(`Actuator command failed: Target microcontroller node at ${targetBaseUrl} is OFFLINE or unreachable.`);
+        }
+
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 3000);
+            const statusRes = await fetch(`${targetBaseUrl}/api/status`, { signal: controller.signal });
+            clearTimeout(timeoutId);
+            if (statusRes.ok) {
+                const statusJson = await statusRes.json();
+                const { ingestSensorData } = await import('./esp32SerialService.js');
+                ingestSensorData(statusJson);
+            }
+        } catch (_statusErr) {}
+    }
+
     let state = 'OFF';
     let mode = 'MANUAL';
 
-    if (actUpper === 'ON') {
+    if (commandStr === 'MANUAL_ON') {
         state = 'ON';
         mode = 'MANUAL';
-    } else if (actUpper === 'OFF') {
+    } else if (commandStr === 'MANUAL_OFF') {
         state = 'OFF';
         mode = 'MANUAL';
-    } else if (actUpper === 'AUTO' || actUpper === 'AUTOMATIC') {
-        state = (actuatorType === 'filter_unit' || actuatorType === 'exhaust_fan') ? 'ON' : 'OFF';
+    } else {
+        if (esp32Result && (esp32Result.relay !== undefined || esp32Result.pump !== undefined)) {
+            state = (esp32Result.relay || esp32Result.pump) ? 'ON' : 'OFF';
+        } else {
+            state = (actuatorType === 'filter_unit' || actuatorType === 'exhaust_fan') ? 'ON' : 'OFF';
+        }
         mode = 'AUTOMATIC';
     }
 
@@ -56,23 +136,22 @@ export async function setActuatorState(actuatorType, action = 'AUTO') {
 
     try {
         const col = await getCollection('device_controls');
-        await col.updateOne(
-            { actuator_type: actuatorType },
-            { $set: updateDoc },
-            { upsert: true }
-        );
+        if (col) {
+            await col.updateOne(
+                { actuator_type: actuatorType },
+                { $set: updateDoc },
+                { upsert: true }
+            );
+        }
     } catch (mErr) {
         console.warn('[Actuator Mongo Update Notice]:', mErr.message);
     }
 
     try {
-        await query(
-            `UPDATE actuator_controls 
-             SET current_state = $1, control_mode = $2, updated_at = NOW() 
-             WHERE actuator_type = $3`,
-            [state, mode, actuatorType]
-        );
-    } catch (pErr) {}
+        const { setESP32Actuator } = await import('./esp32SerialService.js');
+        setESP32Actuator(actuatorType, state);
+    } catch (_e) {}
+
     console.log(`🎛️ [Actuator Switched] ${actuatorType} ➔ State: ${state} | Mode: ${mode}`);
     return updateDoc;
 }

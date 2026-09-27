@@ -26,7 +26,7 @@ async function syncSeedToSupabase() {
         const { count: airSupabaseCount } = await supabase.from('air_quality_logs').select('*', { count: 'exact', head: true });
         if (!airSupabaseCount || airSupabaseCount === 0) {
             const localAir = await client.query('SELECT * FROM air_quality_logs');
-            const records = localAir.rows.map(({ log_id, ...rest }) => rest);
+            const records = localAir.rows.map(({ log_id: _log_id, ...rest }) => rest);
             const { error } = await supabase.from('air_quality_logs').insert(records);
             if (error) console.warn('Sync air logs error:', error.message);
             else console.log(` synced ${records.length} air logs to Supabase`);
@@ -35,7 +35,7 @@ async function syncSeedToSupabase() {
         const { count: waterSupabaseCount } = await supabase.from('water_quality_logs').select('*', { count: 'exact', head: true });
         if (!waterSupabaseCount || waterSupabaseCount === 0) {
             const localWater = await client.query('SELECT * FROM water_quality_logs');
-            const records = localWater.rows.map(({ log_id, ...rest }) => rest);
+            const records = localWater.rows.map(({ log_id: _log_id, ...rest }) => rest);
             const { error } = await supabase.from('water_quality_logs').insert(records);
             if (error) console.warn('Sync water logs error:', error.message);
             else console.log(` synced ${records.length} water logs to Supabase`);
@@ -44,7 +44,7 @@ async function syncSeedToSupabase() {
         const { count: soilSupabaseCount } = await supabase.from('soil_moisture_logs').select('*', { count: 'exact', head: true });
         if (!soilSupabaseCount || soilSupabaseCount === 0) {
             const localSoil = await client.query('SELECT * FROM soil_moisture_logs');
-            const records = localSoil.rows.map(({ log_id, ...rest }) => rest);
+            const records = localSoil.rows.map(({ log_id: _log_id, ...rest }) => rest);
             const { error } = await supabase.from('soil_moisture_logs').insert(records);
             if (error) console.warn('Sync soil logs error:', error.message);
             else console.log(` synced ${records.length} soil logs to Supabase`);
@@ -53,7 +53,7 @@ async function syncSeedToSupabase() {
         const { count: lightSupabaseCount } = await supabase.from('light_intensity_logs').select('*', { count: 'exact', head: true });
         if (!lightSupabaseCount || lightSupabaseCount === 0) {
             const localLight = await client.query('SELECT * FROM light_intensity_logs');
-            const records = localLight.rows.map(({ log_id, ...rest }) => rest);
+            const records = localLight.rows.map(({ log_id: _log_id, ...rest }) => rest);
             const { error } = await supabase.from('light_intensity_logs').insert(records);
             if (error) console.warn('Sync light logs error:', error.message);
             else console.log(` synced ${records.length} light logs to Supabase`);
@@ -62,7 +62,7 @@ async function syncSeedToSupabase() {
         const { count: plantSupabaseCount } = await supabase.from('plant_growth_logs').select('*', { count: 'exact', head: true });
         if (!plantSupabaseCount || plantSupabaseCount === 0) {
             const localPlant = await client.query('SELECT * FROM plant_growth_logs');
-            const records = localPlant.rows.map(({ log_id, ...rest }) => rest);
+            const records = localPlant.rows.map(({ log_id: _log_id, ...rest }) => rest);
             const { error } = await supabase.from('plant_growth_logs').insert(records);
             if (error) console.warn('Sync plant logs error:', error.message);
             else console.log(` synced ${records.length} plant logs to Supabase`);
@@ -71,7 +71,7 @@ async function syncSeedToSupabase() {
         const { count: pestSupabaseCount } = await supabase.from('pest_detection_logs').select('*', { count: 'exact', head: true });
         if (!pestSupabaseCount || pestSupabaseCount === 0) {
             const localPest = await client.query('SELECT * FROM pest_detection_logs');
-            const records = localPest.rows.map(({ pest_log_id, ...rest }) => rest);
+            const records = localPest.rows.map(({ pest_log_id: _pest_log_id, ...rest }) => rest);
             const { error } = await supabase.from('pest_detection_logs').insert(records);
             if (error) console.warn('Sync pest logs error:', error.message);
             else console.log(` synced ${records.length} pest logs to Supabase`);
@@ -80,7 +80,7 @@ async function syncSeedToSupabase() {
         const { count: eventsCount } = await supabase.from('system_events').select('*', { count: 'exact', head: true });
         if (!eventsCount || eventsCount === 0) {
             const localEvents = await client.query('SELECT * FROM system_events');
-            const records = localEvents.rows.map(({ event_id, ...rest }) => rest);
+            const records = localEvents.rows.map(({ event_id: _event_id, ...rest }) => rest);
             await supabase.from('system_events').insert(records);
             console.log(` synced ${records.length} events to Supabase`);
         }
@@ -88,7 +88,7 @@ async function syncSeedToSupabase() {
         const { count: recsCount } = await supabase.from('recommendations_intelligence').select('*', { count: 'exact', head: true });
         if (!recsCount || recsCount === 0) {
             const localRecs = await client.query('SELECT * FROM recommendations_intelligence');
-            const records = localRecs.rows.map(({ recommendation_id, ...rest }) => rest);
+            const records = localRecs.rows.map(({ recommendation_id: _recommendation_id, ...rest }) => rest);
             await supabase.from('recommendations_intelligence').insert(records);
             console.log(` synced ${records.length} recommendations to Supabase`);
         }

@@ -4,132 +4,192 @@ import Nav from '../../components/Nav';
 import Footer from '../../components/Footer';
 import DashboardSubNav from '../../components/DashboardSubNav';
 import AudioVoiceButton from '../../components/AudioVoiceButton';
+import { useLanguage } from '../../context/LanguageContext';
 
 import {
     initCharts,
     applyGraphFilter,
     downloadReport,
     destroyCharts,
-    ESP32_STREAM_URL,
     pestEvents,
     pestRecommendations,
     readImageFile
 } from '../mainfunction4';
 
-import { analyzePestImage, fetchLatestSensorData, fetchCameraStatus, updateCameraStreamUrl, captureCameraSnapshot, toggleCameraFlash } from '../../api/dataService';
-import CameraModal from '../../components/CameraModal';
+import { useRef } from 'react';
+import { analyzePestImage, fetchPiAiResults, fetchPiCameraStatus, getPestAiFrameUrl, insertLog } from '../../api/dataService';
+import { useAiScan } from '../../context/AiScanContext';
 import './pd.css';
 
 const PD = () => {
+    const { language, t } = useLanguage();
+    const {
+        pestScanMode: scanMode,
+        setPestScanMode: setScanMode,
+        pestContinuousResults: continuousPiResults,
+        setPestContinuousResults: setContinuousPiResults,
+        pestLiveFrameUrl: livePestAiFrameUrl,
+        setPestLiveFrameUrl: setLivePestAiFrameUrl,
+        pestLastProcessedCycleRef: lastProcessedCycleRef
+    } = useAiScan();
+
+    const [cameraConnected, setCameraConnected] = useState(true);
     const [uploadedImage, setUploadedImage] = useState(null);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [aiResult, setAiResult] = useState(null);
-    const [streamActive, setStreamActive] = useState(true);
-    const [cameraUrl, setCameraUrl] = useState(ESP32_STREAM_URL || '/api/camera/stream');
-    const [streamKey, setStreamKey] = useState(Date.now());
     const [alertDismissed, setAlertDismissed] = useState(false);
     const [eventsList, setEventsList] = useState(pestEvents);
     const [recommendationsList, setRecommendationsList] = useState(pestRecommendations);
-    const [isCamModalOpen, setIsCamModalOpen] = useState(false);
-    const [flashActive, setFlashActive] = useState(false);
+
+    const [aiFrameKey, setAiFrameKey] = useState(() => Date.now());
+    const [isManualScanning, setIsManualScanning] = useState(false);
+
+    const isFetchingCamRef = useRef(false);
+    const isFetchingAiRef = useRef(false);
+
+    const STREAM_SOURCES = [
+        'http://ossie.local:8080/?action=stream',
+        '/api/camera/stream',
+        '/api/camera/capture',
+        '/api/ai/pest-frame'
+    ];
+    const [streamSourceIndex, setStreamSourceIndex] = useState(0);
+
+    const handleStreamError = () => {
+        if (streamSourceIndex < STREAM_SOURCES.length - 1) {
+            setStreamSourceIndex(prev => prev + 1);
+        } else {
+            setCameraConnected(false);
+        }
+    };
+
+    const handleStreamLoad = () => {
+        setCameraConnected(true);
+    };
+
+    const handleAutoScanClick = () => {
+        setScanMode('auto');
+    };
+
+    const handleStopClick = () => {
+        setScanMode('stop');
+    };
+
+    const triggerManualScan = async () => {
+        if (isFetchingAiRef.current) return;
+        setIsManualScanning(true);
+        isFetchingAiRef.current = true;
+        console.log(`[PEST AI] mode=${scanMode} cycle=${lastProcessedCycleRef.current} MANUAL SCAN STARTED`);
+        try {
+            const resData = await fetchPiAiResults();
+            if (resData) {
+                const realCycle = resData.cycle_count || resData.yolo?.cycle_count || resData.timestamp || Date.now();
+                const frameUrl = `${getPestAiFrameUrl()}?frame=${realCycle}`;
+                console.log(`[PEST AI] mode=${scanMode} cycle=${realCycle} lastCycle=${lastProcessedCycleRef.current} MANUAL SCAN SUCCESS | FRAME=${frameUrl}`);
+
+                lastProcessedCycleRef.current = realCycle;
+                setContinuousPiResults(resData);
+                setLivePestAiFrameUrl(frameUrl);
+                setAiFrameKey(realCycle);
+            }
+        } catch (err) {
+            console.warn(`[PEST AI] mode=${scanMode} MANUAL SCAN ERROR:`, err?.message || err);
+        } finally {
+            isFetchingAiRef.current = false;
+            setIsManualScanning(false);
+        }
+    };
 
     useEffect(() => {
         initCharts();
 
-        const syncCamera = async () => {
+        let isMounted = true;
+        let aiPollTimeout = null;
+
+        const checkCamera = async () => {
+            if (isFetchingCamRef.current) return;
+            isFetchingCamRef.current = true;
             try {
-                const [camStatus, s] = await Promise.allSettled([
-                    fetchCameraStatus(),
-                    fetchLatestSensorData()
-                ]);
+                const status = await fetchPiCameraStatus();
+                if (isMounted && status && status.connected) {
+                    setCameraConnected(true);
+                }
+            } catch (_e) {
+            } finally {
+                isFetchingCamRef.current = false;
+            }
+        };
 
-                if (camStatus.status === 'fulfilled' && camStatus.value?.streamUrl) {
-                    const url = camStatus.value.streamUrl;
-                    if (!url.includes('<ESP32-CAM-IP>')) {
-                        setCameraUrl(url);
-                    }
-                    if (camStatus.value.flashLed !== undefined) {
-                        setFlashActive(camStatus.value.flashLed);
+        const checkPestTelemetry = async () => {
+            if (!isMounted || scanMode !== 'auto') return;
+
+            if (isFetchingAiRef.current) {
+                if (isMounted && scanMode === 'auto') {
+                    aiPollTimeout = setTimeout(checkPestTelemetry, 1000);
+                }
+                return;
+            }
+
+            isFetchingAiRef.current = true;
+            try {
+                const resData = await fetchPiAiResults();
+                if (isMounted && resData) {
+                    const realCycle = resData.cycle_count || resData.yolo?.cycle_count || resData.timestamp;
+
+                    if (realCycle && realCycle === lastProcessedCycleRef.current) {
+                        console.log(`[PEST AI] mode=auto cycle=${realCycle} lastCycle=${lastProcessedCycleRef.current} NO NEW CYCLE`);
+                    } else {
+                        const frameUrl = `${getPestAiFrameUrl()}?frame=${realCycle || Date.now()}`;
+                        console.log(`[PEST AI] mode=auto cycle=${realCycle} lastCycle=${lastProcessedCycleRef.current} NEW CYCLE | FRAME=${frameUrl}`);
+
+                        lastProcessedCycleRef.current = realCycle;
+                        setContinuousPiResults(resData);
+                        setLivePestAiFrameUrl(frameUrl);
+                        setAiFrameKey(realCycle || Date.now());
                     }
                 }
-
-                if (s.status === 'fulfilled' && s.value?.streamUrl) {
-                    if (!s.value.streamUrl.includes('<ESP32-CAM-IP>')) {
-                        setCameraUrl(s.value.streamUrl);
-                    }
+            } catch (err) {
+                console.warn(`[PEST AI] mode=auto ERROR:`, err?.message || err);
+            } finally {
+                isFetchingAiRef.current = false;
+                if (isMounted && scanMode === 'auto') {
+                    aiPollTimeout = setTimeout(checkPestTelemetry, 1000);
                 }
-            } catch (e) {}};
+            }
+        };
 
-        syncCamera();
-        const interval = setInterval(syncCamera, 6000);
+        checkCamera();
+        if (scanMode === 'auto') {
+            checkPestTelemetry();
+        }
+
+        const camInterval = setInterval(checkCamera, 5000);
+
+        // Visibility & focus listener: Trigger immediate check when tab becomes visible if scanMode is auto
+        const handleVisibilityOrFocus = () => {
+            if (document.visibilityState === 'visible') {
+                console.log(`[PEST AI] Tab/Window visible | mode=${scanMode}`);
+                isFetchingAiRef.current = false;
+                if (isMounted && scanMode === 'auto') {
+                    if (aiPollTimeout) clearTimeout(aiPollTimeout);
+                    checkPestTelemetry();
+                }
+            }
+        };
+
+        document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+        window.addEventListener('focus', handleVisibilityOrFocus);
 
         return () => {
+            isMounted = false;
+            if (aiPollTimeout) clearTimeout(aiPollTimeout);
             destroyCharts();
-            clearInterval(interval);
+            clearInterval(camInterval);
+            document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+            window.removeEventListener('focus', handleVisibilityOrFocus);
         };
-    }, []);
-
-    const handleSetCustomCameraIp = () => {
-        setIsCamModalOpen(true);
-    };
-
-    const handleToggleFlash = async () => {
-        const nextState = !flashActive;
-        setFlashActive(nextState);
-        await toggleCameraFlash(nextState);
-    };
-
-    const handleRefreshStream = () => {
-        setStreamActive(true);
-        setStreamKey(Date.now());
-    };
-
-    const handleCaptureFromCamera = async () => {
-        setIsAnalyzing(true);
-        const frameData = await captureCameraSnapshot();
-        if (!frameData) {
-            setIsAnalyzing(false);
-            setStreamActive(false);
-            return;
-        }
-
-        setUploadedImage(frameData);
-        setAiResult(null);
-        try {
-            const result = await analyzePestImage({
-                image: frameData,
-                cropName: 'Tomato (Solanum lycopersicum)'
-            });
-            setTimeout(() => {
-                setIsAnalyzing(false);
-                setAiResult(result);
-                if (result) {
-                    const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                    setEventsList(prev => [
-                        {
-                            time: timeStr,
-                            icon: '',
-                            title: `LIVE CAM: ${(result.detected_pest || 'INSECT').toUpperCase()} IDENTIFIED`,
-                            level: (result.severity_level || 'medium').toLowerCase(),
-                            details: [
-                                `Target Crop: ${result.target_crop || 'Tomato'}`,
-                                `Pest Count: ${result.pest_count || 1}`,
-                                `AI Confidence: ${result.ai_confidence}%`,
-                                `Action: ${result.recommended_action}`
-                            ]
-                        },
-                        ...prev.slice(0, 6)
-                    ]);
-                    setRecommendationsList(prev => [
-                        `Optical AI (${result.detected_pest}): ${result.recommended_action}`,
-                        ...prev.slice(0, 5)
-                    ]);
-                }
-            }, 750);
-        } catch (e) {
-            setIsAnalyzing(false);
-        }
-    };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [scanMode]);
 
     const handleUpload = (e) => {
         const file = e.target.files?.[0];
@@ -139,39 +199,70 @@ const PD = () => {
             setUploadedImage(base64Img);
             setIsAnalyzing(true);
             setAiResult(null);
+            setAlertDismissed(false);
 
             try {
                 const result = await analyzePestImage({
-                    image: base64Img,
-                    cropName: 'Tomato (Solanum lycopersicum)'
+                    image: base64Img
                 });
+
+                if (result) {
+                    const pestName = result.detected_pest || 'Pest Detected';
+                    const pCount = result.pest_count !== undefined ? result.pest_count : 1;
+                    const sev = (result.severity_level || 'HIGH').toUpperCase();
+                    const isPest = pCount > 0 && pestName !== 'No Pest Detected';
+
+                    if (isPest) {
+                        // Immediately dispatch alert to backend -> MongoDB & WhatsApp/Email dispatches
+                        insertLog('alerts', {
+                            alert_type: 'PEST_DETECTED',
+                            title: `PEST DETECTED ALERT: ${pestName.toUpperCase()}`,
+                            message: `Manual verification upload detected ${pCount} x ${pestName} with ${result.ai_confidence ? `${result.ai_confidence}%` : 'high'} confidence. Recommended Action: ${result.recommended_action || 'Inspect canopy immediately.'}`,
+                            severity: sev,
+                            module_name: 'Pest Detection',
+                            status: 'ACTIVE',
+                            is_read: false,
+                            created_at: new Date().toISOString()
+                        }).catch(err => console.warn('[Pest Alert Log Notice]:', err.message));
+                    }
+                }
 
                 setTimeout(() => {
                     setIsAnalyzing(false);
                     setAiResult(result);
+                    setAlertDismissed(false);
 
                     if (result) {
                         const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                        const pestName = result.detected_pest || 'Pest Detected';
+                        const pCount = result.pest_count !== undefined ? result.pest_count : 1;
+                        const sev = (result.severity_level || 'HIGH').toUpperCase();
+                        const isPest = pCount > 0 && pestName !== 'No Pest Detected';
+
                         setEventsList(prev => [
                             {
                                 time: timeStr,
                                 icon: '',
-                                title: `${(result.detected_pest || 'INSECT').toUpperCase()} IDENTIFIED`,
-                                level: (result.severity_level || 'medium').toLowerCase(),
+                                title: isPest
+                                    ? `CRITICAL ALERT: PEST DETECTED - ${pestName.toUpperCase()}`
+                                    : `MANUAL SCAN: ${pestName.toUpperCase()} IDENTIFIED`,
+                                level: isPest ? sev.toLowerCase() : 'low',
                                 details: [
-                                    `Target Crop: ${result.target_crop || 'Tomato'}`,
-                                    `Pest Count: ${result.pest_count || 1}`,
-                                    `AI Confidence: ${result.ai_confidence}%`,
-                                    `Action: ${result.recommended_action}`
+                                    `Pest Species: ${pestName}`,
+                                    `Pest Count: ${pCount}`,
+                                    `AI Confidence: ${result.ai_confidence ? `${result.ai_confidence}%` : 'N/A'}`,
+                                    `Action: ${result.recommended_action || 'Specimen Analyzed'}`
                                 ]
                             },
                             ...prev.slice(0, 6)
                         ]);
 
-                        setRecommendationsList(prev => [
-                            `Optical AI (${result.detected_pest}): ${result.recommended_action}`,
-                            ...prev.slice(0, 5)
-                        ]);
+                        if (result.recommended_action) {
+                            setRecommendationsList(prev => [
+                                `Manual Verification (${pestName}): ${result.recommended_action}`,
+                                ...prev.slice(0, 5)
+                            ]);
+                        }
                     }
                 }, 700);
             } catch (err) {
@@ -187,18 +278,62 @@ const PD = () => {
         setAiResult(null);
     };
 
-    const currentPestStatus = aiResult
-        ? (aiResult.severity_level === 'LOW' || aiResult.detected_pest?.toLowerCase().includes('ladybug') ? 'No Threat' : `Active Threat - ${aiResult.detected_pest?.split(' (')[0]}`)
-        : 'No Threat';
+    // Calculate Overview & AI Diagnostic values based on active input source
+    const isManualActive = Boolean(uploadedImage);
 
-    const currentCrop = aiResult?.target_crop || 'Tomato (Solanum lycopersicum)';
-    const currentPestDetected = aiResult?.detected_pest || 'Aphids (Cluster)';
-    const currentPestCount = aiResult ? aiResult.pest_count : 12;
-    const currentSeverity = aiResult ? aiResult.severity_level : 'MEDIUM';
-    const currentConfidence = aiResult ? aiResult.ai_confidence : 97;
-    const currentTimestamp = aiResult
-        ? `Today, ${new Date(aiResult.detected_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-        : '1st September 10:30 AM';
+    let currentPestCount = 0;
+    let currentPestDetected = "No Pest Detected";
+    let currentSeverity = "NONE";
+    let currentConfidence = "0";
+    let currentTimestamp = "Awaiting Pi AI Telemetry";
+
+    if (isManualActive && aiResult) {
+        currentPestCount = aiResult.pest_count !== undefined
+            ? aiResult.pest_count
+            : (aiResult.bounding_boxes?.length || (aiResult.detected_pest && aiResult.detected_pest !== 'No Pest Detected' ? 1 : 0));
+        currentPestDetected = currentPestCount > 0 ? (aiResult.detected_pest || "Pest Detected") : "No Pest Detected";
+        currentSeverity = currentPestCount === 0 ? "NONE" : (aiResult.severity_level || (currentPestCount >= 4 ? 'HIGH' : 'MEDIUM'));
+        currentConfidence = currentPestCount === 0 ? "0" : (aiResult.ai_confidence ? `${Math.round(aiResult.ai_confidence)}%` : '0');
+        currentTimestamp = aiResult.detected_at
+            ? `Manual scan at ${new Date(aiResult.detected_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+            : 'Manual scan complete';
+    } else if (continuousPiResults) {
+        const hasPest = continuousPiResults.has_pest || (continuousPiResults.yolo?.pest_count || 0) > 0;
+        const detections = continuousPiResults.yolo?.detections || [];
+        const countFromYolo = continuousPiResults.yolo?.pest_count;
+
+        currentPestCount = countFromYolo !== undefined ? countFromYolo : (hasPest ? Math.max(1, detections.length) : 0);
+
+        if (currentPestCount > 0) {
+            const labels = Array.from(new Set(detections.map(d => d.label).filter(Boolean)));
+            currentPestDetected = labels.length > 0
+                ? labels.join(', ')
+                : (continuousPiResults.pest_ai?.label || continuousPiResults.yolo?.primary_pest || "Pest Detected");
+            currentSeverity = continuousPiResults.pest_ai?.severity || (currentPestCount >= 4 ? 'HIGH' : (currentPestCount >= 2 ? 'MEDIUM' : 'LOW'));
+            const rawConf = continuousPiResults.pest_ai?.confidence || continuousPiResults.yolo?.confidence;
+            currentConfidence = rawConf ? `${Math.round(rawConf)}%` : '0';
+        } else {
+            currentPestDetected = "No Pest Detected";
+            currentSeverity = "NONE";
+            currentConfidence = "0";
+        }
+
+        currentTimestamp = continuousPiResults.pipeline?.last_inference_time
+            ? `Live Pi AI at ${continuousPiResults.pipeline.last_inference_time}`
+            : (continuousPiResults.timestamp
+                ? `Live Pi AI at ${new Date(continuousPiResults.timestamp).toLocaleTimeString()}`
+                : 'Awaiting Pi AI Telemetry');
+    }
+
+    const finalDiagnosticImageUrl = livePestAiFrameUrl || `${getPestAiFrameUrl()}?frame=${aiFrameKey}`;
+
+    console.log('[Pest Diagnostic Render]', {
+        uploadedImage: Boolean(uploadedImage),
+        continuousPiResults: Boolean(continuousPiResults),
+        cycle_count: continuousPiResults?.cycle_count,
+        aiFrameKey,
+        finalDiagnosticImageUrl
+    });
 
     return (
         <div className="pest-detection-page">
@@ -210,129 +345,252 @@ const PD = () => {
             <div className="ai-model">
 
                 <div className="head">
-                    <h1>AI MODEL</h1>
+                    <h1>{t('pestDash.pestDetection')}</h1>
                 </div>
 
                 <div className="ai-panels">
 
+                    {/* 1. LIVE PEST DETECTION — UNTOUCHED ORIGINAL FRAME */}
                     <div className="cam-panel live-camera">
                         <div className="cam-panel-header">
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                                <h2>LIVE CAMERA</h2>
-                                <button 
-                                    onClick={handleSetCustomCameraIp} 
-                                    title="Configure ESP32-CAM Mobile Hotspot & IP"
-                                    style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', color: '#38bdf8', borderRadius: '4px', padding: '2px 7px', fontSize: '11px', cursor: 'pointer', fontWeight: '600' }}
-                                >
-                                    Hotspot IP
-                                </button>
-                                <button 
-                                    onClick={handleToggleFlash} 
-                                    title="Toggle Camera High-Power Flashlight LED"
-                                    style={{ background: flashActive ? '#f59e0b' : 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', color: flashActive ? '#000' : '#a0aec0', borderRadius: '4px', padding: '2px 7px', fontSize: '11px', cursor: 'pointer', fontWeight: '600' }}
-                                >
-                                    {flashActive ? 'Flash ON' : 'Flash'}
-                                </button>
-                                <button 
-                                    onClick={handleRefreshStream} 
-                                    title="Reload Camera Stream"
-                                    style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', color: '#a0aec0', borderRadius: '4px', padding: '2px 7px', fontSize: '11px', cursor: 'pointer' }}
-                                >
-                                    Reload
-                                </button>
-                            </div>
-                            <span className={`status-pill ${uploadedImage || streamActive ? 'pill-online' : 'pill-offline'}`}>
+                            <h2>{t('pestDash.livePestDetection')}</h2>
+                            <span className={`status-pill ${cameraConnected ? 'pill-online' : 'pill-offline'}`}>
                                 <span className="status-dot"></span>
-                                {uploadedImage ? 'Sample Active' : (streamActive ? 'Online' : 'Offline')}
+                                {cameraConnected ? (language === 'hi' ? 'ऑनलाइन' : 'Online') : (language === 'hi' ? 'ऑफलाइन' : 'Offline')}
                             </span>
                         </div>
-                        <div className="cam-frame" style={{ position: 'relative' }}>
-                            {uploadedImage ? (
-                                <img
-                                    src={uploadedImage}
-                                    alt="Live / Uploaded Crop View"
-                                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                                />
-                            ) : streamActive ? (
-                                <img
-                                    src={`${cameraUrl}?t=${streamKey}`}
-                                    alt="ESP32-CAM Live Feed"
-                                    onError={() => setStreamActive(false)}
-                                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                                />
-                            ) : (
-                                <div className="cam-placeholder">
-                                    <p>Camera Stream Disconnected</p>
-                                    <p style={{ fontSize: '11px', color: '#718096', marginTop: '4px' }}>Target: {cameraUrl}</p>
-                                    <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
-                                        <button 
-                                            onClick={handleRefreshStream}
-                                            style={{ padding: '4px 10px', background: '#3182ce', color: '#fff', border: 'none', borderRadius: '4px', fontSize: '12px', cursor: 'pointer' }}
-                                        >
-                                            Retry
-                                        </button>
-                                        <button 
-                                            onClick={handleSetCustomCameraIp}
-                                            style={{ padding: '4px 10px', background: 'rgba(255,255,255,0.15)', color: '#fff', border: 'none', borderRadius: '4px', fontSize: '12px', cursor: 'pointer' }}
-                                        >
-                                            Enter IP
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
-
-                            {isAnalyzing && (
-                                <div className="ai-scanning-overlay">
-                                    <div className="scanner-laser-bar"></div>
-                                    <div className="scanning-hud-tag">
-                                        <span className="radar-ping"></span>
-                                        <span>Optical Inference Active...</span>
-                                    </div>
+                        <div className="cam-frame" style={{ position: 'relative', width: '100%', height: '100%', minHeight: '220px' }}>
+                            <img
+                                key={streamSourceIndex}
+                                src={STREAM_SOURCES[streamSourceIndex]}
+                                alt="Live Pest Detection"
+                                className="cam-live-feed"
+                                onError={handleStreamError}
+                                onLoad={handleStreamLoad}
+                                style={{ width: '100%', height: '100%', objectFit: 'cover', display: cameraConnected ? 'block' : 'none' }}
+                            />
+                            {!cameraConnected && (
+                                <div className="canopy-empty-state">
+                                    <svg className="empty-state-svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                                        <rect x="2" y="6" width="14" height="12" rx="2" />
+                                        <path d="M22 8.5l-6 3.5 6 3.5v-7z" />
+                                        <line x1="2" y1="2" x2="22" y2="22" />
+                                    </svg>
+                                    <p className="empty-state-title">Waiting for Pi Camera...</p>
+                                    <button
+                                        type="button"
+                                        style={{ marginTop: '10px', padding: '6px 14px', background: '#10b981', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '600', fontSize: '12px' }}
+                                        onClick={() => {
+                                            setStreamSourceIndex(0);
+                                            setCameraConnected(true);
+                                        }}
+                                    >
+                                        Retry Stream
+                                    </button>
                                 </div>
                             )}
                         </div>
-                        <div style={{ marginTop: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <span style={{ fontSize: '11px', color: '#718096' }}>Source: {cameraUrl.slice(0, 30)}</span>
+                    </div>
+
+                    {/* 2. AI DIAGNOSTIC FRAME — YOLO BOUNDING BOXES & HUD */}
+                    <div className="cam-panel output-section ai-diagnostic-panel-white" style={{
+                        background: '#ffffff',
+                        border: '2px solid #e2e8f0',
+                        borderRadius: '8px',
+                        boxShadow: '0 4px 16px rgba(0, 0, 0, 0.06)',
+                        overflow: 'hidden',
+                        display: 'flex',
+                        flexDirection: 'column'
+                    }}>
+                        <div className="cam-panel-header" style={{ background: '#ffffff', padding: '12px 16px', borderBottom: '1px solid #e2e8f0', margin: 0 }}>
+                            <h2 style={{ color: '#0f172a', fontWeight: '700', fontSize: '13px', margin: 0, letterSpacing: '0.4px' }}>AI DIAGNOSTIC</h2>
+                            <span className={`status-pill ${uploadedImage ? (isAnalyzing ? 'pill-analyzing' : 'pill-upload') : (continuousPiResults ? (scanMode === 'auto' ? 'pill-online' : 'pill-idle') : 'pill-idle')}`}>
+                                <span className="status-dot"></span>
+                                {uploadedImage ? (isAnalyzing ? 'Analyzing' : 'Manual Verification') : (continuousPiResults ? (scanMode === 'auto' ? 'Live Pi AI' : 'AI Paused') : 'Awaiting Telemetry')}
+                            </span>
+                        </div>
+
+                        <div className="output-frame" style={{ background: '#f8fafc', position: 'relative', border: 'none' }}>
+                            {uploadedImage ? (
+                                <div className="ai-output-container">
+                                    <div className="ai-image-wrapper">
+                                        <img
+                                            src={uploadedImage}
+                                            alt="Uploaded Pest Diagnostic"
+                                            className="output-image"
+                                        />
+
+                                        {isAnalyzing && (
+                                            <div className="ai-scanning-overlay">
+                                                <div className="scanner-laser-bar"></div>
+                                                <div className="scanning-hud-tag">
+                                                    <span className="radar-ping"></span>
+                                                    <span>Running YOLO Inference...</span>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {!isAnalyzing && aiResult && aiResult.bounding_boxes && aiResult.bounding_boxes.length > 0 && (
+                                            <div className="ai-boxes-overlay">
+                                                {aiResult.bounding_boxes.map((box, idx) => (
+                                                    <div
+                                                        key={idx}
+                                                        className={`ai-bbox-box sev-${currentSeverity.toLowerCase()}`}
+                                                        style={{
+                                                            left: `${box.x}%`,
+                                                            top: `${box.y}%`,
+                                                            width: `${box.width}%`,
+                                                            height: `${box.height}%`
+                                                        }}
+                                                    >
+                                                        <span className="ai-bbox-corner tl"></span>
+                                                        <span className="ai-bbox-corner tr"></span>
+                                                        <span className="ai-bbox-corner bl"></span>
+                                                        <span className="ai-bbox-corner br"></span>
+                                                        <span className="ai-bbox-label">
+                                                            {box.label || currentPestDetected} • {box.conf || currentConfidence}
+                                                        </span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {!isAnalyzing && (
+                                        <div className="ai-hud-floating-pill">
+                                            <span className="hud-dot"></span>
+                                            <span>{currentPestDetected} | {currentPestCount} Detected ({currentConfidence})</span>
+                                        </div>
+                                    )}
+                                </div>
+                            ) : (
+                                <div className="ai-output-container">
+                                    <div className="ai-image-wrapper">
+                                        <img
+                                            key={aiFrameKey}
+                                            src={finalDiagnosticImageUrl}
+                                            alt="Raspberry Pi Pest AI Feed"
+                                            className="output-image"
+                                            onError={(e) => {
+                                                console.warn('[Pest Diagnostic Img Error] Failed to load image:', e.target.src);
+                                                if (!e.target.dataset.fallback) {
+                                                    e.target.dataset.fallback = 'true';
+                                                    e.target.src = `/api/ai/pest-frame?frame=${aiFrameKey}`;
+                                                }
+                                            }}
+                                        />
+                                    </div>
+
+                                    {continuousPiResults && (
+                                        <div className="ai-hud-floating-pill">
+                                            <span className="hud-dot"></span>
+                                            <span>{currentPestDetected} | {currentPestCount} Detected ({currentConfidence})</span>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* 3 CONTROL BUTTONS DIRECTLY BELOW AI DIAGNOSTIC FRAME — WHITE THEMED */}
+                        <div className="ai-diagnostic-controls-bar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', padding: '12px', background: '#ffffff', borderTop: '1px solid #e2e8f0' }}>
                             <button
-                                onClick={handleCaptureFromCamera}
+                                type="button"
+                                className={`scan-ctrl-btn ${scanMode === 'auto' ? 'active-auto' : ''}`}
+                                onClick={handleAutoScanClick}
+                                title="Start automatic 1-second Pi AI cycle checking"
                                 style={{
-                                    padding: '5px 12px',
-                                    background: 'linear-gradient(135deg, #10b981, #059669)',
-                                    color: '#fff',
-                                    border: 'none',
+                                    padding: '7px 16px',
+                                    fontSize: '11px',
+                                    fontWeight: '700',
                                     borderRadius: '6px',
-                                    fontSize: '12px',
-                                    fontWeight: '600',
+                                    border: scanMode === 'auto' ? '1.5px solid #10b981' : '1px solid #cbd5e1',
+                                    background: scanMode === 'auto' ? '#ecfdf5' : '#ffffff',
+                                    color: scanMode === 'auto' ? '#047857' : '#475569',
                                     cursor: 'pointer',
-                                    boxShadow: '0 2px 8px rgba(16,185,129,0.3)'
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    boxShadow: scanMode === 'auto' ? '0 2px 4px rgba(16, 185, 129, 0.15)' : 'none',
+                                    transition: 'all 0.2s ease'
                                 }}
                             >
-                                Scan Live Frame with AI
+                                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: scanMode === 'auto' ? '#10b981' : '#94a3b8' }}></span>
+                                AUTO SCAN {scanMode === 'auto' ? '(ACTIVE)' : ''}
+                            </button>
+
+                            <button
+                                type="button"
+                                className="scan-ctrl-btn btn-manual"
+                                onClick={triggerManualScan}
+                                disabled={isManualScanning}
+                                title="Trigger an immediate one-shot Pi AI refresh"
+                                style={{
+                                    padding: '7px 16px',
+                                    fontSize: '11px',
+                                    fontWeight: '700',
+                                    borderRadius: '6px',
+                                    border: isManualScanning ? '1.5px solid #3b82f6' : '1px solid #93c5fd',
+                                    background: isManualScanning ? '#eff6ff' : '#ffffff',
+                                    color: isManualScanning ? '#1d4ed8' : '#2563eb',
+                                    cursor: isManualScanning ? 'wait' : 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    transition: 'all 0.2s ease'
+                                }}
+                            >
+                                {isManualScanning ? 'SCANNING...' : 'MANUAL SCAN'}
+                            </button>
+
+                            <button
+                                type="button"
+                                className={`scan-ctrl-btn ${scanMode === 'stop' ? 'active-stop' : ''}`}
+                                onClick={handleStopClick}
+                                title="Freeze AI Diagnostic display and stop automatic 1s telemetry checking"
+                                style={{
+                                    padding: '7px 16px',
+                                    fontSize: '11px',
+                                    fontWeight: '700',
+                                    borderRadius: '6px',
+                                    border: scanMode === 'stop' ? '1.5px solid #ef4444' : '1px solid #cbd5e1',
+                                    background: scanMode === 'stop' ? '#fef2f2' : '#ffffff',
+                                    color: scanMode === 'stop' ? '#b91c1c' : '#475569',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    boxShadow: scanMode === 'stop' ? '0 2px 4px rgba(239, 68, 68, 0.15)' : 'none',
+                                    transition: 'all 0.2s ease'
+                                }}
+                            >
+                                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: scanMode === 'stop' ? '#ef4444' : '#94a3b8' }}></span>
+                                STOP {scanMode === 'stop' ? '(ACTIVE)' : ''}
                             </button>
                         </div>
                     </div>
 
-                    <div className="cam-panel upload-section">
+                    {/* 3. MANUAL VERIFICATION */}
+                    <div className="cam-panel manual-upload">
                         <div className="cam-panel-header">
-                            <h2>UPLOAD SECTION</h2>
-                            <span className={`status-pill ${uploadedImage ? 'pill-online' : 'pill-idle'}`}>
+                            <h2>MANUAL VERIFICATION</h2>
+                            <span className={`status-pill ${uploadedImage ? 'pill-upload' : 'pill-idle'}`}>
                                 <span className="status-dot"></span>
-                                {isAnalyzing ? 'Analyzing AI...' : (uploadedImage ? 'Image Loaded' : 'Idle')}
+                                {uploadedImage ? (isAnalyzing ? 'Analyzing' : 'Ready') : 'Awaiting Input'}
                             </span>
                         </div>
-                        <div className="upload-box">
+                        <div className="upload-container">
                             {uploadedImage ? (
                                 <>
                                     <div className="upload-preview-wrapper">
                                         <img
                                             src={uploadedImage}
-                                            alt="Uploaded preview"
-                                            className="upload-preview"
+                                            alt="Uploaded pest specimen"
+                                            className="upload-preview-image"
                                         />
                                         {isAnalyzing && (
                                             <div className="upload-analyzing-badge">
                                                 <span className="upload-spinner"></span>
-                                                Scanning...
+                                                Scanning Pest Photo...
                                             </div>
                                         )}
                                     </div>
@@ -350,8 +608,8 @@ const PD = () => {
                                 </>
                             ) : (
                                 <label htmlFor="pestUpload" className="upload-dropzone">
-                                    <span className="upload-label-text">Click to upload an image</span>
-                                    <span className="upload-hint">JPG or PNG (AI Model Inference)</span>
+                                    <span className="upload-label-text">Click to upload pest photo</span>
+                                    <span className="upload-hint">JPG or PNG (Ad-hoc AI Verification)</span>
                                 </label>
                             )}
                             <input
@@ -364,93 +622,47 @@ const PD = () => {
                         </div>
                     </div>
 
-                    <div className="cam-panel output-section">
-                        <div className="cam-panel-header">
-                            <h2>OUTPUT</h2>
-                            <span className={`status-pill ${
-                                isAnalyzing ? 'pill-analyzing' :
-                                uploadedImage ? 'pill-upload' : 
-                                (streamActive ? 'pill-online' : 'pill-offline')
-                            }`}>
-                                <span className="status-dot"></span>
-                                {isAnalyzing ? 'Neural Inference...' : (
-                                    uploadedImage ? (aiResult ? `Inferred (${aiResult.ai_confidence}%)` : 'Processing') :
-                                    (streamActive ? 'From Live Feed' : 'No Source')
-                                )}
-                            </span>
-                        </div>
-                        <div className="output-frame">
-                            {uploadedImage ? (
-                                <div className="ai-output-container">
-                                    <div className="ai-image-wrapper">
-                                        <img
-                                            src={uploadedImage}
-                                            alt="AI Detection Output"
-                                            className="output-image"
-                                        />
-                                        
-                                        {isAnalyzing && (
-                                            <div className="ai-scanning-overlay">
-                                                <div className="scanner-laser-bar"></div>
-                                                <div className="scanning-hud-tag">
-                                                    <span className="radar-ping"></span>
-                                                    <span>Running Saliency & YOLO INT8 Pipeline...</span>
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        {!isAnalyzing && aiResult && aiResult.bounding_boxes && (
-                                            <div className="ai-boxes-overlay">
-                                                {aiResult.bounding_boxes.map((box, idx) => (
-                                                    <div
-                                                        key={idx}
-                                                        className={`ai-bbox-box sev-${(aiResult.severity_level || 'medium').toLowerCase()}`}
-                                                        style={{
-                                                            left: `${box.x}%`,
-                                                            top: `${box.y}%`,
-                                                            width: `${box.width}%`,
-                                                            height: `${box.height}%`
-                                                        }}
-                                                    >
-                                                        <span className="ai-bbox-corner tl"></span>
-                                                        <span className="ai-bbox-corner tr"></span>
-                                                        <span className="ai-bbox-corner bl"></span>
-                                                        <span className="ai-bbox-corner br"></span>
-                                                        <span className="ai-bbox-label">
-                                                            {box.label || aiResult.detected_pest} • {box.conf || aiResult.ai_confidence}%
-                                                        </span>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
-                                    
-                                    {!isAnalyzing && aiResult && (
-                                        <div className="ai-hud-floating-pill">
-                                            <span className="hud-dot"></span>
-                                            <span>{aiResult.detected_pest} | {aiResult.pest_count} Detected ({aiResult.ai_confidence}%)</span>
-                                        </div>
-                                    )}
-                                </div>
-                            ) : streamActive ? (
-                                <img
-                                    src={`${cameraUrl}?t=${streamKey}`}
-                                    alt="Live Detection Output"
-                                    className="output-image"
-                                />
-                            ) : (
-                                <div className="cam-placeholder">
-                                    <p>No Feed Available</p>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-
                 </div>
 
             </div>
 
+            {/* 4. OVERVIEW SECTION */}
             <div className="dashboard">
+
+                {!alertDismissed && (
+                    <div className={`pest-alert-banner banner-${currentSeverity.toLowerCase()}`} style={{ margin: '0 0 20px 0' }}>
+                        <div className="alert-banner-left">
+                            <div className="alert-banner-text">
+                                <h3>
+                                    {currentPestCount > 0
+                                        ? `PEST DETECTED ALERT: ${currentPestDetected.toUpperCase()} (${currentSeverity} SEVERITY)`
+                                        : 'SYSTEM HEALTH ALERT: BIO-SECURITY RISK CONTROLLED'}
+                                </h3>
+                                <p>
+                                    {currentPestCount > 0
+                                        ? `Optical AI scanning reports ${currentPestCount} active ${currentPestDetected} detected in greenhouse canopy.`
+                                        : 'Optical AI scanning reports low aphid and whitefly activity across all greenhouse sectors. Targeted bio-pesticide sprayers on standby.'}
+                                </p>
+                            </div>
+                        </div>
+                        <div className="alert-banner-actions">
+                            <AudioVoiceButton
+                                text={currentPestCount > 0 ? `Pest detected alert: ${currentPestDetected} at ${currentSeverity} severity.` : 'Pest bio-security is stable. Optical scanning reports zero active threat.'}
+                                label="Speak Alert"
+                            />
+                            <span className="alert-status-pill">
+                                {currentPestCount > 0 ? `${currentConfidence} Match` : 'Active Monitor'}
+                            </span>
+                            <button
+                                className="alert-close-btn"
+                                onClick={() => setAlertDismissed(true)}
+                                title="Dismiss notification"
+                            >
+                                ✕
+                            </button>
+                        </div>
+                    </div>
+                )}
 
                 <div className="overview">
 
@@ -461,18 +673,6 @@ const PD = () => {
                     <div className="main">
 
                         <div className="left">
-
-                            <div className="status">
-                                <h2>PEST DETECTION</h2>
-                                <p className={`unit ${aiResult?.severity_level === 'HIGH' || aiResult?.severity_level === 'SEVERE' ? 'text-hazard' : ''}`} id="pestStatus">
-                                    {currentPestStatus}
-                                </p>
-                            </div>
-
-                            <div className="box1">
-                                <h2>TARGET CROP</h2>
-                                <p className="unit" id="targetCrop">{currentCrop}</p>
-                            </div>
 
                             <div className="box2">
                                 <h2>PEST DETECTED</h2>
@@ -497,7 +697,7 @@ const PD = () => {
 
                             <div className="box5">
                                 <h2>AI CONFIDENCE</h2>
-                                <p className="unit" id="aiConfidence">{currentConfidence}%</p>
+                                <p className="unit" id="aiConfidence">{currentConfidence}</p>
                             </div>
 
                             <div className="box51">
@@ -633,28 +833,28 @@ const PD = () => {
             <div className="alert-section-wrapper">
 
                 {!alertDismissed && (
-                    <div className={`pest-alert-banner banner-${(aiResult?.severity_level || 'medium').toLowerCase()}`}>
+                    <div className={`pest-alert-banner banner-${currentSeverity.toLowerCase()}`}>
                         <div className="alert-banner-left">
                             <div className="alert-banner-text">
                                 <h3>
-                                    {aiResult
-                                        ? `AI VISION DIAGNOSIS: ${aiResult.detected_pest?.toUpperCase()} (${aiResult.severity_level} SEVERITY)`
+                                    {currentPestCount > 0
+                                        ? `AI VISION DIAGNOSIS: ${currentPestDetected.toUpperCase()} (${currentSeverity} SEVERITY)`
                                         : 'SYSTEM HEALTH ALERT: BIO-SECURITY RISK CONTROLLED'}
                                 </h3>
                                 <p>
-                                    {aiResult
-                                        ? aiResult.recommended_action
+                                    {currentPestCount > 0
+                                        ? `Optical AI scanning reports ${currentPestCount} active ${currentPestDetected} detected in greenhouse canopy.`
                                         : 'Optical AI scanning reports low aphid and whitefly activity across all greenhouse sectors. Targeted bio-pesticide sprayers on standby.'}
                                 </p>
                             </div>
                         </div>
                         <div className="alert-banner-actions">
                             <AudioVoiceButton
-                                text={aiResult ? `Pest detected: ${aiResult.detected_pest} at ${aiResult.severity_level} severity. Recommended action: ${aiResult.recommended_action}` : 'Pest bio-security is stable. Optical scanning reports zero active threat.'}
+                                text={currentPestCount > 0 ? `Pest detected: ${currentPestDetected} at ${currentSeverity} severity.` : 'Pest bio-security is stable. Optical scanning reports zero active threat.'}
                                 label="Speak Alert"
                             />
                             <span className="alert-status-pill">
-                                {aiResult ? `${aiResult.ai_confidence}% Match` : 'Active Monitor'}
+                                {currentPestCount > 0 ? `${currentConfidence} Match` : 'Active Monitor'}
                             </span>
                             <button
                                 className="alert-close-btn"
@@ -741,18 +941,6 @@ const PD = () => {
                 </div>
 
             </div>
-
-            <CameraModal
-                isOpen={isCamModalOpen}
-                onClose={() => setIsCamModalOpen(false)}
-                currentUrl={cameraUrl}
-                onUrlUpdated={(newUrl) => {
-                    setCameraUrl(newUrl);
-                    setStreamActive(true);
-                    setStreamKey(Date.now());
-                }}
-                isOnline={streamActive}
-            />
 
             <Footer />
 

@@ -13,6 +13,6 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, () => {
     console.log(`🌐 Local Database API Bridge server running on http://localhost:${PORT}`);
-    console.log(`📡 Primary Storage (Local PostgreSQL): localhost:4000/IOTrex`);
-    console.log(`🍃 Secondary Mirror (MongoDB): localhost:27017/IOTrex`);
+    console.log(`🍃 Primary Storage (MongoDB Database): IOTrex`);
+    console.log(`🔴 Fast Cache (Redis Engine): Localhost / In-Memory Fallback`);
 });

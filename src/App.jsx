@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { LanguageProvider } from './context/LanguageContext';
+import { AiScanProvider } from './context/AiScanContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import Home from './pages/Home';
 import About from './pages/About';
@@ -14,66 +15,87 @@ import WaterQualityDashboard from './dashboard/waterquality/WaterQualityDashboar
 import PlantHealthDashboard from './dashboard/plantgrowth_disease/plant';
 import PestDetectionDashboard from './dashboard/pest_detection/pd';
 
+import Notifications from './pages/Notifications';
+import Profile from './pages/Profile';
+
 function App() {
     return (
         <LanguageProvider>
             <AuthProvider>
-                <BrowserRouter>
-                <Routes>
-                    <Route path="/" element={<Home />} />
-                    <Route path="/about" element={<About />} />
-                    <Route path="/monitoring" element={<Monitoring />} />
-                    <Route path="/contact" element={<Contact />} />
-                    <Route path="/dashboard" element={<DashboardLanding />} />
-                    <Route path="/login" element={<Login />} />
-                    <Route path="/register" element={<Register />} />
+                <AiScanProvider>
+                    <BrowserRouter>
+                        <Routes>
+                            <Route path="/" element={<Home />} />
+                            <Route path="/about" element={<About />} />
+                            <Route path="/monitoring" element={<Monitoring />} />
+                            <Route path="/contact" element={<Contact />} />
+                            <Route path="/dashboard" element={<DashboardLanding />} />
+                            <Route path="/login" element={<Login />} />
+                            <Route path="/register" element={<Register />} />
+                            <Route
+                                path="/notifications"
+                                element={
+                                    <ProtectedRoute>
+                                        <Notifications />
+                                    </ProtectedRoute>
+                                }
+                            />
+                            <Route
+                                path="/profile"
+                                element={
+                                    <ProtectedRoute>
+                                        <Profile />
+                                    </ProtectedRoute>
+                                }
+                            />
 
-                    <Route
-                        path="/dashboard/air"
-                        element={
-                            <ProtectedRoute>
-                                <AirPollutionDashboard />
-                            </ProtectedRoute>
-                        }
-                    />
-                    <Route
-                        path="/dashboard/water"
-                        element={
-                            <ProtectedRoute>
-                                <WaterQualityDashboard />
-                            </ProtectedRoute>
-                        }
-                    />
-                    <Route
-                        path="/dashboard/plant"
-                        element={
-                            <ProtectedRoute>
-                                <PlantHealthDashboard />
-                            </ProtectedRoute>
-                        }
-                    />
-                    <Route
-                        path="/dashboard/weather"
-                        element={
-                            <ProtectedRoute>
-                                <PestDetectionDashboard />
-                            </ProtectedRoute>
-                        }
-                    />
-                    <Route
-                        path="/plant"
-                        element={
-                            <ProtectedRoute>
-                                <PlantHealthDashboard />
-                            </ProtectedRoute>
-                        }
-                    />
+                            <Route
+                                path="/dashboard/air"
+                                element={
+                                    <ProtectedRoute>
+                                        <AirPollutionDashboard />
+                                    </ProtectedRoute>
+                                }
+                            />
+                            <Route
+                                path="/dashboard/water"
+                                element={
+                                    <ProtectedRoute>
+                                        <WaterQualityDashboard />
+                                    </ProtectedRoute>
+                                }
+                            />
+                            <Route
+                                path="/dashboard/plant"
+                                element={
+                                    <ProtectedRoute>
+                                        <PlantHealthDashboard />
+                                    </ProtectedRoute>
+                                }
+                            />
+                            <Route
+                                path="/dashboard/weather"
+                                element={
+                                    <ProtectedRoute>
+                                        <PestDetectionDashboard />
+                                    </ProtectedRoute>
+                                }
+                            />
+                            <Route
+                                path="/plant"
+                                element={
+                                    <ProtectedRoute>
+                                        <PlantHealthDashboard />
+                                    </ProtectedRoute>
+                                }
+                            />
 
-                    <Route path="*" element={<Navigate to="/" replace />} />
-                </Routes>
-            </BrowserRouter>
-        </AuthProvider>
-    </LanguageProvider>
+                            <Route path="*" element={<Navigate to="/" replace />} />
+                        </Routes>
+                    </BrowserRouter>
+                </AiScanProvider>
+            </AuthProvider>
+        </LanguageProvider>
     );
 }
 

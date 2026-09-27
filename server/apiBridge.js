@@ -1,8 +1,7 @@
-import fs from 'fs';
-import path from 'path';
+import crypto from 'crypto';
+import http from 'http';
 import { queryTable, insertAndSync, getSystemHealth } from './syncEngine.js';
 import { getCollection } from './mongoDb.js';
-import { query } from './db.js';
 import {
     sendSms,
     evaluateAndNotify
@@ -19,10 +18,101 @@ import {
     sendTelegramWelcomeAlert,
     sendTelegramLoginAlert
 } from './telegramService.js';
+import { startMdnsResponder } from './mdnsService.js';
+import { startContinuousHardwareLinkDaemon } from './esp32SerialService.js';
+
+// Security Token Config
+const JWT_SECRET = process.env.JWT_SECRET || 'envirox_secure_jwt_secret_key_2026';
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://iotrex.local:5173').split(',').map(s => s.trim());
+
+export function generateUserToken(user) {
+    const payload = {
+        id: user.user_id || user.id || user._id || 'usr_' + Date.now(),
+        email: user.email,
+        role: user.role || 'operator',
+        iat: Math.floor(Date.now() / 1000),
+        exp: Math.floor(Date.now() / 1000) + (86400 * 30) // 30-day expiration
+    };
+    const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
+    const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
+    const signature = crypto.createHmac('sha256', JWT_SECRET).update(`${header}.${body}`).digest('base64url');
+    return `${header}.${body}.${signature}`;
+}
+
+export function verifyUserToken(tokenStr) {
+    if (!tokenStr) return null;
+    try {
+        const cleanToken = tokenStr.replace(/^Bearer\s+/i, '').trim();
+        const parts = cleanToken.split('.');
+        if (parts.length !== 3) return null;
+        const [header, body, signature] = parts;
+        const expectedSig = crypto.createHmac('sha256', JWT_SECRET).update(`${header}.${body}`).digest('base64url');
+        if (signature !== expectedSig) return null;
+        const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
+        if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) return null;
+        return payload;
+    } catch (_e) {
+        return null;
+    }
+}
+
+export function authenticateRequest(req, requiredRoles = null) {
+    const authHeader = req.headers['authorization'] || '';
+    const apiKeyHeader = req.headers['x-api-key'] || '';
+
+    const masterApiKey = process.env.ENVIROX_API_KEY || 'envirox_master_key_2026';
+    if (apiKeyHeader && apiKeyHeader === masterApiKey) {
+        return { authenticated: true, user: { role: 'admin', email: 'system@envirox.local' } };
+    }
+
+    const user = verifyUserToken(authHeader);
+    if (!user) {
+        return { authenticated: false, error: '401', message: 'Authentication required. Missing or invalid Bearer token.' };
+    }
+
+    if (requiredRoles) {
+        const allowed = Array.isArray(requiredRoles) ? requiredRoles : [requiredRoles];
+        if (!allowed.includes(user.role)) {
+            return { authenticated: false, error: '403', message: `Forbidden. User role '${user.role}' lacks authorization for this operation.` };
+        }
+    }
+
+    return { authenticated: true, user };
+}
+
+// Rate Limiter Storage
+const rateLimitMap = new Map();
+
+function checkRateLimit(ip, endpointKey, maxRequests, windowMs) {
+    const now = Date.now();
+    const key = `${ip}:${endpointKey}`;
+    let record = rateLimitMap.get(key);
+    if (!record || now > record.resetTime) {
+        record = { count: 1, resetTime: now + windowMs };
+        rateLimitMap.set(key, record);
+        return { allowed: true, remaining: maxRequests - 1 };
+    }
+    record.count += 1;
+    if (record.count > maxRequests) {
+        return { allowed: false, remaining: 0 };
+    }
+    return { allowed: true, remaining: maxRequests - record.count };
+}
+
+// Cache the latest complete JPEG frame passing through the MJPEG proxy
+let latestStreamFrameBuffer = null;
+let latestStreamFrameTime = 0;
+
+// Raspberry Pi USB Camera state (latest frame + rolling buffer of last 5 frames)
+let latestPiFrame = null;
+let piFrameHistory = [];
+
 
 export function createApiMiddleware() {
     startContinuousMetaDaemon();
     startTelegramPollingDaemon();
+    startMdnsResponder('iotrex.local', 5173);
+    startContinuousHardwareLinkDaemon();
 
     return async (req, res, next) => {
         const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
@@ -32,12 +122,21 @@ export function createApiMiddleware() {
             return next();
         }
 
+        const reqOrigin = req.headers.origin;
+        const isAllowedOrigin = !reqOrigin || ALLOWED_ORIGINS.includes(reqOrigin) || process.env.NODE_ENV !== 'production';
+        const corsOrigin = isAllowedOrigin && reqOrigin ? reqOrigin : (ALLOWED_ORIGINS[0] || 'http://localhost:5173');
+
         const sendJson = (status, payload) => {
             res.writeHead(status, {
                 'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Origin': corsOrigin,
                 'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-                'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+                'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-API-Key',
+                'Access-Control-Allow-Credentials': 'true',
+                'X-Content-Type-Options': 'nosniff',
+                'X-Frame-Options': 'DENY',
+                'X-XSS-Protection': '1; mode=block',
+                'Referrer-Policy': 'strict-origin-when-cross-origin'
             });
             res.end(JSON.stringify(payload));
         };
@@ -85,6 +184,26 @@ export function createApiMiddleware() {
                             .then(res => console.log(`✅ [Register WhatsApp Delivered] ID: ${res?.messageId || 'OK'}`))
                             .catch(e => console.warn('[Meta WhatsApp Welcome Warning]:', e.message));
 
+                        import('./emailService.js').then(({ sendEmail }) => {
+                            sendEmail({
+                                to: 'oswaldogracias456@gmail.com',
+                                subject: `[IOTrex Security] New User Sign Up: ${userRecord.full_name}`,
+                                text: `New User Registration Alert\n\nName: ${userRecord.full_name}\nEmail: ${userRecord.email}\nPhone: ${userRecord.phone || 'N/A'}\nTime: ${new Date().toLocaleString()}\n\nA new user account has been registered on your IOTrex platform.`,
+                                html: `
+                                    <div style="font-family: Arial, sans-serif; padding: 20px; background-color: #f4f8f1; border: 2px solid #65b32e; border-radius: 8px;">
+                                        <h2 style="color: #1b5e20; margin-top: 0;">🌱 New User Registration Alert</h2>
+                                        <p><strong>Name:</strong> ${userRecord.full_name}</p>
+                                        <p><strong>Email:</strong> ${userRecord.email}</p>
+                                        <p><strong>Phone:</strong> ${userRecord.phone || 'N/A'}</p>
+                                        <p><strong>Time:</strong> ${new Date().toLocaleString()}</p>
+                                        <hr style="border: 0; border-top: 1px solid #cbd5e1; margin: 20px 0;" />
+                                        <p style="font-size: 12px; color: #64748b;">This is an automated security notification from your IOTrex Smart Greenhouse System.</p>
+                                    </div>
+                                `
+                            }).then(res => console.log('📧 [Register Email Delivered to Gmail]:', res.success ? 'Success' : res.error))
+                                .catch(e => console.warn('[Register Email Exception]:', e.message));
+                        }).catch(() => { });
+
                         sendTelegramWelcomeAlert(userRecord.telegram_chat_id, userRecord.full_name)
                             .then(res => res?.success && console.log(`✈️ [Register Telegram Delivered] Chat: ${res.chatId}`))
                             .catch(e => console.warn('[Telegram Welcome Warning]:', e.message));
@@ -115,21 +234,10 @@ export function createApiMiddleware() {
                         let foundUser = null;
 
                         try {
-                            const pgUser = await query('SELECT * FROM users WHERE email = $1 LIMIT 1', [normalizedEmail]);
-                            if (pgUser.rows.length > 0) {
-                                foundUser = pgUser.rows[0];
-                            }
-                        } catch (pgErr) {
-                            console.warn('[Auth PG Warning] Checking MongoDB for user:', pgErr.message);
-                        }
-
-                        if (!foundUser) {
-                            try {
-                                const usersCol = await getCollection('users');
-                                foundUser = await usersCol.findOne({ email: normalizedEmail });
-                            } catch (mErr) {
-                                console.warn('[Auth Mongo Warning] MongoDB user lookup failed:', mErr.message);
-                            }
+                            const usersCol = await getCollection('users');
+                            foundUser = await usersCol.findOne({ email: normalizedEmail });
+                        } catch (mErr) {
+                            console.warn('[Auth Mongo Warning] MongoDB user lookup failed:', mErr.message);
                         }
 
                         if (!foundUser && password.length >= 6) {
@@ -159,6 +267,26 @@ export function createApiMiddleware() {
                             .then(res => console.log(`✅ [Login WhatsApp Delivered] ID: ${res?.messageId || 'OK'}`))
                             .catch(e => console.warn('[Meta WhatsApp Login Alert Warning]:', e.message));
 
+                        import('./emailService.js').then(({ sendEmail }) => {
+                            sendEmail({
+                                to: 'oswaldogracias456@gmail.com',
+                                subject: `[IOTrex Security Alert] User Login: ${foundUser.full_name || foundUser.email}`,
+                                text: `Security Login Notification\n\nUser: ${foundUser.full_name || foundUser.email}\nEmail: ${foundUser.email}\nTime: ${new Date().toLocaleString()}\nStatus: Session Authenticated\n\nIf this was not you, please log in and change your password immediately.`,
+                                html: `
+                                    <div style="font-family: Arial, sans-serif; padding: 20px; background-color: #f0fdf4; border: 2px solid #3b82f6; border-radius: 8px;">
+                                        <h2 style="color: #1e40af; margin-top: 0;">🔒 Security Login Notification</h2>
+                                        <p><strong>User:</strong> ${foundUser.full_name || foundUser.email}</p>
+                                        <p><strong>Email:</strong> ${foundUser.email}</p>
+                                        <p><strong>Time:</strong> ${new Date().toLocaleString()}</p>
+                                        <p><strong>Status:</strong> <span style="color: #16a34a; font-weight: bold;">Authenticated</span></p>
+                                        <hr style="border: 0; border-top: 1px solid #cbd5e1; margin: 20px 0;" />
+                                        <p style="font-size: 12px; color: #64748b;">This is an automated login security notification from your IOTrex Smart Greenhouse System.</p>
+                                    </div>
+                                `
+                            }).then(res => console.log('📧 [Login Email Delivered to Gmail]:', res.success ? 'Success' : res.error))
+                                .catch(e => console.warn('[Login Email Exception]:', e.message));
+                        }).catch(() => { });
+
                         sendTelegramLoginAlert(foundUser.telegram_chat_id, foundUser.full_name || foundUser.email.split('@')[0], isFirstLogin)
                             .then(res => res?.success && console.log(`✈️ [Login Telegram Delivered] Chat: ${res.chatId}`))
                             .catch(e => console.warn('[Telegram Login Alert Warning]:', e.message));
@@ -167,14 +295,18 @@ export function createApiMiddleware() {
                             col.updateOne({ email: normalizedEmail }, { $set: { last_login_at: new Date().toISOString() } });
                         }).catch(() => { });
 
+                        const userPayload = {
+                            id: foundUser.user_id || foundUser._id || 'usr_' + Date.now(),
+                            email: foundUser.email,
+                            full_name: foundUser.full_name || foundUser.email?.split('@')[0],
+                            role: foundUser.role || 'operator'
+                        };
+                        const token = generateUserToken(userPayload);
+
                         return sendJson(200, {
                             status: 'success',
-                            user: {
-                                id: foundUser.user_id || foundUser._id || 'usr_' + Date.now(),
-                                email: foundUser.email,
-                                full_name: foundUser.full_name || foundUser.email?.split('@')[0],
-                                role: foundUser.role || 'operator'
-                            }
+                            token,
+                            user: userPayload
                         });
                     } catch (err) {
                         return sendJson(500, { status: 'error', message: err.message });
@@ -250,13 +382,41 @@ export function createApiMiddleware() {
                         const parsed = JSON.parse(body || '{}');
                         const result = await insertAndSync(table, parsed);
 
-                        evaluateAndNotify(table, parsed).catch (err => {
+                        evaluateAndNotify(table, parsed).catch(err => {
                             console.warn('[Twilio Trigger Warning]:', err.message);
                         });
 
-                        evaluateAndNotifyMeta(table, parsed).catch (err => {
+                        evaluateAndNotifyMeta(table, parsed).catch(err => {
                             console.warn('[Meta WhatsApp Trigger Warning]:', err.message);
                         });
+
+                        if (table === 'alerts') {
+                            import('./emailService.js').then(({ sendEmail }) => {
+                                const subject = `[IOTrex ${parsed.severity || 'CRITICAL'} Alert] ${parsed.title || 'Greenhouse System Alert'}`;
+                                const text = `IOTrex Greenhouse Alert Notification\n\n` +
+                                    `Title: ${parsed.title || 'System Alert'}\n` +
+                                    `Module: ${parsed.module_name || 'Greenhouse'}\n` +
+                                    `Severity: ${parsed.severity || 'HIGH'}\n` +
+                                    `Details: ${parsed.message || ''}\n` +
+                                    `Timestamp: ${new Date().toISOString()}\n\n` +
+                                    `Please log in to your IOTrex dashboard.`;
+
+                                const html = `
+                                    <div style="font-family: Arial, sans-serif; padding: 20px; background-color: #f4f8f1; border-radius: 8px; border: 1px solid #cbd5e1;">
+                                        <h2 style="color: #ef4444; margin-top: 0;">🚨 ${parsed.title || 'IOTrex Greenhouse System Alert'}</h2>
+                                        <p><strong>Module:</strong> ${parsed.module_name || 'Greenhouse'}</p>
+                                        <p><strong>Severity:</strong> <span style="color: #b91c1c; font-weight: bold;">${parsed.severity || 'HIGH'}</span></p>
+                                        <p><strong>Details:</strong> ${parsed.message || ''}</p>
+                                        <p><strong>Timestamp:</strong> ${new Date().toLocaleString()}</p>
+                                        <hr style="border: 0; border-top: 1px solid #cbd5e1; margin: 20px 0;" />
+                                        <p style="font-size: 12px; color: #64748b;">This is an automated real-time alert dispatched to oswaldogracias456@gmail.com from your IOTrex Smart Greenhouse System.</p>
+                                    </div>
+                                `;
+                                sendEmail({ to: 'oswaldogracias456@gmail.com', subject, text, html })
+                                    .then(res => console.log('📧 [Alert Email Delivered to oswaldogracias456@gmail.com]:', res.success ? 'Success' : res.error))
+                                    .catch(e => console.warn('[Alert Email Exception]:', e.message));
+                            }).catch(() => { });
+                        }
 
                         return sendJson(201, {
                             status: 'success',
@@ -270,7 +430,442 @@ export function createApiMiddleware() {
                 return;
             }
 
+            if (pathname === '/api/notifications/email/send' && req.method === 'POST') {
+                const clientIp = req.socket.remoteAddress || '127.0.0.1';
+                const rl = checkRateLimit(clientIp, 'email_send', 5, 60000);
+                if (!rl.allowed) {
+                    return sendJson(429, { status: 'error', message: 'Rate limit exceeded for email sending.' });
+                }
+
+                let body = '';
+                req.on('data', chunk => { body += chunk; });
+                req.on('end', async () => {
+                    try {
+                        const { to, subject, message, html } = JSON.parse(body || '{}');
+                        if (!to || !to.includes('@')) {
+                            return sendJson(400, { status: 'error', message: 'Valid recipient email address ("to") is required.' });
+                        }
+                        if (!subject) {
+                            return sendJson(400, { status: 'error', message: 'Email subject is required.' });
+                        }
+                        const { sendEmail } = await import('./emailService.js');
+                        const result = await sendEmail({ to, subject, text: message, html });
+                        if (result.success) {
+                            return sendJson(200, { status: 'success', result });
+                        } else {
+                            return sendJson(500, { status: 'error', message: result.error || 'SendGrid email dispatch failed' });
+                        }
+                    } catch (err) {
+                        return sendJson(500, { status: 'error', message: err.message });
+                    }
+                });
+                return;
+            }
+
+            if (pathname === '/api/auth/login' && req.method === 'POST') {
+                const clientIp = req.socket.remoteAddress || '127.0.0.1';
+                const rl = checkRateLimit(clientIp, 'auth_login', 20, 60000);
+                if (!rl.allowed) {
+                    return sendJson(429, { status: 'error', message: 'Too many login attempts. Please wait.' });
+                }
+
+                let body = '';
+                req.on('data', chunk => { body += chunk; });
+                req.on('end', async () => {
+                    try {
+                        const { email, phone } = JSON.parse(body || '{}');
+                        const { normalizeIndianPhoneNumber } = await import('./notificationConfig.js');
+
+                        if (!email && !phone) {
+                            return sendJson(400, { status: 'error', message: 'Email or phone number is required.' });
+                        }
+
+                        const inputPhone = phone || (email && !email.includes('@') ? email : null);
+                        const normalizedPhone = normalizeIndianPhoneNumber(inputPhone);
+                        const cleanEmail = email && email.includes('@') ? email.trim() : (normalizedPhone ? `${normalizedPhone}@envirox.local` : 'user@envirox.local');
+
+                        let userDoc = null;
+                        try {
+                            const usersCol = await getCollection('users');
+                            if (usersCol) {
+                                if (normalizedPhone) {
+                                    userDoc = await usersCol.findOne({ $or: [{ phone: normalizedPhone }, { email: cleanEmail }] });
+                                } else {
+                                    userDoc = await usersCol.findOne({ email: cleanEmail });
+                                }
+
+                                if (!userDoc) {
+                                    userDoc = {
+                                        _id: 'usr_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
+                                        email: cleanEmail,
+                                        phone: normalizedPhone,
+                                        phoneVerified: Boolean(normalizedPhone),
+                                        notificationPreferences: {
+                                            smsEnabled: true,
+                                            emailEnabled: true
+                                        },
+                                        full_name: cleanEmail.split('@')[0],
+                                        role: 'operator',
+                                        active: true,
+                                        created_at: new Date(),
+                                        updated_at: new Date()
+                                    };
+                                    await usersCol.insertOne(userDoc);
+                                } else {
+                                    // Update existing user phone if newly supplied without overwriting preferences
+                                    const updates = { updated_at: new Date() };
+                                    if (normalizedPhone && !userDoc.phone) {
+                                        updates.phone = normalizedPhone;
+                                        updates.phoneVerified = true;
+                                    }
+                                    await usersCol.updateOne({ _id: userDoc._id }, { $set: updates });
+                                    if (updates.phone) {
+                                        userDoc.phone = updates.phone;
+                                        userDoc.phoneVerified = true;
+                                    }
+                                }
+                            }
+                        } catch (dbErr) {
+                            console.warn('[Auth Notice] Mongo User store fallback:', dbErr.message);
+                        }
+
+                        if (!userDoc) {
+                            userDoc = {
+                                _id: 'usr_' + Date.now(),
+                                email: cleanEmail,
+                                phone: normalizedPhone,
+                                phoneVerified: Boolean(normalizedPhone),
+                                notificationPreferences: { smsEnabled: true, emailEnabled: true },
+                                full_name: cleanEmail.split('@')[0],
+                                role: 'operator',
+                                active: true
+                            };
+                        }
+
+                        const token = generateUserToken(userDoc);
+                        return sendJson(200, {
+                            status: 'success',
+                            token,
+                            user: {
+                                id: userDoc._id,
+                                email: userDoc.email,
+                                full_name: userDoc.full_name,
+                                phone: userDoc.phone,
+                                phoneVerified: Boolean(userDoc.phoneVerified),
+                                notificationPreferences: userDoc.notificationPreferences || { smsEnabled: true, emailEnabled: true },
+                                role: userDoc.role || 'operator'
+                            }
+                        });
+                    } catch (err) {
+                        return sendJson(500, { status: 'error', message: err.message });
+                    }
+                });
+                return;
+            }
+
+            if (pathname === '/api/auth/register' && req.method === 'POST') {
+                let body = '';
+                req.on('data', chunk => { body += chunk; });
+                req.on('end', async () => {
+                    try {
+                        const { email, fullName, phone } = JSON.parse(body || '{}');
+                        const { normalizeIndianPhoneNumber } = await import('./notificationConfig.js');
+
+                        if (!email) {
+                            return sendJson(400, { status: 'error', message: 'Email address is required.' });
+                        }
+
+                        const normalizedPhone = normalizeIndianPhoneNumber(phone);
+                        const userDoc = {
+                            _id: 'usr_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
+                            email: email.trim(),
+                            phone: normalizedPhone,
+                            phoneVerified: Boolean(normalizedPhone),
+                            notificationPreferences: {
+                                smsEnabled: true,
+                                emailEnabled: true
+                            },
+                            full_name: fullName || email.split('@')[0],
+                            role: 'operator',
+                            active: true,
+                            created_at: new Date(),
+                            updated_at: new Date()
+                        };
+
+                        try {
+                            const usersCol = await getCollection('users');
+                            if (usersCol) {
+                                await usersCol.updateOne(
+                                    { email: userDoc.email },
+                                    { $set: userDoc },
+                                    { upsert: true }
+                                );
+                            }
+                        } catch (dbErr) {
+                            console.warn('[Auth Notice] Mongo User register save warning:', dbErr.message);
+                        }
+
+                        const token = generateUserToken(userDoc);
+                        return sendJson(200, {
+                            status: 'success',
+                            token,
+                            user: {
+                                id: userDoc._id,
+                                email: userDoc.email,
+                                full_name: userDoc.full_name,
+                                phone: userDoc.phone,
+                                phoneVerified: Boolean(userDoc.phoneVerified),
+                                notificationPreferences: userDoc.notificationPreferences,
+                                role: userDoc.role
+                            }
+                        });
+                    } catch (err) {
+                        return sendJson(500, { status: 'error', message: err.message });
+                    }
+                });
+                return;
+            }
+
+            if (pathname === '/api/notifications/preferences' && req.method === 'GET') {
+                const authResult = authenticateRequest(req);
+                if (!authResult.authenticated) {
+                    return sendJson(401, { status: 'error', message: authResult.message });
+                }
+
+                try {
+                    const { maskPhone } = await import('./notificationConfig.js');
+                    const usersCol = await getCollection('users');
+                    let userDoc = null;
+                    if (usersCol) {
+                        userDoc = await usersCol.findOne({
+                            $or: [
+                                { _id: authResult.user.id },
+                                { email: authResult.user.email }
+                            ]
+                        });
+                    }
+
+                    const smsEnabled = userDoc?.notificationPreferences?.smsEnabled ?? userDoc?.smsEnabled ?? true;
+                    const phone = userDoc?.phone || null;
+                    const phoneVerified = Boolean(userDoc?.phoneVerified ?? false);
+
+                    return sendJson(200, {
+                        status: 'success',
+                        smsEnabled,
+                        phone: phone ? maskPhone(phone) : null,
+                        phoneVerified
+                    });
+                } catch (err) {
+                    return sendJson(500, { status: 'error', message: err.message });
+                }
+            }
+
+            if (pathname === '/api/notifications/preferences' && req.method === 'POST') {
+                const authResult = authenticateRequest(req);
+                if (!authResult.authenticated) {
+                    return sendJson(401, { status: 'error', message: authResult.message });
+                }
+
+                let body = '';
+                req.on('data', chunk => { body += chunk; });
+                req.on('end', async () => {
+                    try {
+                        const { smsEnabled } = JSON.parse(body || '{}');
+                        if (typeof smsEnabled !== 'boolean') {
+                            return sendJson(400, { status: 'error', message: 'Parameter "smsEnabled" must be a boolean.' });
+                        }
+
+                        const { maskPhone } = await import('./notificationConfig.js');
+                        let userDoc = null;
+                        try {
+                            const usersCol = await getCollection('users');
+                            if (usersCol) {
+                                userDoc = await usersCol.findOne({
+                                    $or: [
+                                        { _id: authResult.user.id },
+                                        { email: authResult.user.email }
+                                    ]
+                                });
+
+                                if (userDoc) {
+                                    await usersCol.updateOne(
+                                        { _id: userDoc._id },
+                                        {
+                                            $set: {
+                                                'notificationPreferences.smsEnabled': smsEnabled,
+                                                smsEnabled: smsEnabled,
+                                                updated_at: new Date()
+                                            }
+                                        }
+                                    );
+                                    userDoc.smsEnabled = smsEnabled;
+                                }
+                            }
+                        } catch (dbErr) {
+                            console.warn('[Preferences Notice] Mongo save warning:', dbErr.message);
+                        }
+
+                        return sendJson(200, {
+                            status: 'success',
+                            message: 'Notification preferences updated successfully',
+                            smsEnabled,
+                            phone: userDoc?.phone ? maskPhone(userDoc.phone) : null,
+                            phoneVerified: Boolean(userDoc?.phoneVerified ?? false)
+                        });
+                    } catch (err) {
+                        return sendJson(400, { status: 'error', message: 'Invalid JSON payload: ' + err.message });
+                    }
+                });
+                return;
+            }
+
+
+            if (pathname === '/api/notifications/recipient' && req.method === 'POST') {
+                const clientIp = req.socket.remoteAddress || '127.0.0.1';
+                const rl = checkRateLimit(clientIp, 'recipient_config', 10, 60000);
+                if (!rl.allowed) {
+                    return sendJson(429, { status: 'error', message: 'Rate limit exceeded for recipient configuration.' });
+                }
+
+                const authResult = authenticateRequest(req, ['operator', 'admin', 'superuser']);
+
+                // Enforce authentication for notification recipient modification
+                if (!authResult.authenticated) {
+                    const code = authResult.error === '403' ? 403 : 401;
+                    return sendJson(code, { status: 'error', message: authResult.message });
+                }
+
+                let body = '';
+                req.on('data', chunk => { body += chunk; });
+                req.on('end', async () => {
+                    try {
+                        const { name, phone, email } = JSON.parse(body || '{}');
+                        const { updateNotificationRecipient } = await import('./notificationConfig.js');
+                        const updateRes = await updateNotificationRecipient({ name, phone, email });
+
+                        if (!updateRes.success) {
+                            return sendJson(400, { status: 'error', message: updateRes.error });
+                        }
+
+                        return sendJson(200, {
+                            status: 'success',
+                            message: 'Notification recipient updated successfully',
+                            data: updateRes.recipient
+                        });
+                    } catch (err) {
+                        return sendJson(400, { status: 'error', message: 'Invalid JSON payload: ' + err.message });
+                    }
+                });
+                return;
+            }
+
+            if (pathname === '/api/notifications/email/test' && req.method === 'POST') {
+                const clientIp = req.socket.remoteAddress || '127.0.0.1';
+                const rl = checkRateLimit(clientIp, 'email_test', 5, 600000); // 5 tests per 10 mins
+                if (!rl.allowed) {
+                    return sendJson(429, { status: 'error', message: 'Rate limit exceeded for email test.' });
+                }
+
+                let body = '';
+                req.on('data', chunk => { body += chunk; });
+                req.on('end', async () => {
+                    try {
+                        const { to } = JSON.parse(body || '{}');
+                        const { getNotificationRecipient } = await import('./notificationConfig.js');
+                        const configRecipient = await getNotificationRecipient();
+                        const recipient = to || configRecipient.email;
+                        const { sendEmail } = await import('./emailService.js');
+                        const testBody = `🌱 [EnviroX SendGrid Integration Test]\nSendGrid email notification pipeline is ACTIVE!\nRecipient Name: ${configRecipient.name}\nCanonical UTC Time: ${new Date().toISOString()}`;
+                        const testHtml = `
+<div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #5cb85c; border-radius: 8px; max-width: 600px;">
+    <h2 style="color: #5cb85c; margin-top: 0;">🌱 [EnviroX] SendGrid Email Service Active</h2>
+    <p>SendGrid notification integration successfully verified!</p>
+    <p><strong>Recipient Name:</strong> ${configRecipient.name}</p>
+    <p><strong>Recipient Email:</strong> ${recipient}</p>
+    <p><strong>Timestamp (UTC):</strong> ${new Date().toISOString()}</p>
+</div>
+                        `.trim();
+                        const result = await sendEmail({ to: recipient, subject: '[EnviroX] SendGrid Integration Test', text: testBody, html: testHtml });
+                        return sendJson(200, { status: 'success', recipient, result });
+                    } catch (err) {
+                        return sendJson(500, { status: 'error', message: err.message });
+                    }
+                });
+                return;
+            }
+
+            if (pathname === '/api/notifications/sms/msg91/send' && req.method === 'POST') {
+                const clientIp = req.socket.remoteAddress || '127.0.0.1';
+                const rl = checkRateLimit(clientIp, 'msg91_send', 5, 60000);
+                if (!rl.allowed) {
+                    return sendJson(429, { status: 'error', message: 'Rate limit exceeded for MSG91 SMS dispatch.' });
+                }
+
+                let body = '';
+                req.on('data', chunk => { body += chunk; });
+                req.on('end', async () => {
+                    try {
+                        const { to, message, templateId, params } = JSON.parse(body || '{}');
+                        const { sendSMS } = await import('./smsService.js');
+                        const { normalizeIndianPhoneNumber, getNotificationRecipient } = await import('./notificationConfig.js');
+                        let target = to;
+                        if (!target) {
+                            const rec = await getNotificationRecipient();
+                            target = rec.phone;
+                        }
+                        const normalizedTo = normalizeIndianPhoneNumber(target);
+                        if (!normalizedTo) {
+                            return sendJson(400, { status: 'error', message: 'Valid 10-digit Indian phone number ("to") is required.' });
+                        }
+                        const result = await sendSMS({ to: normalizedTo, message, templateId, params });
+                        return sendJson(result.success ? 200 : 500, { status: result.success ? 'success' : 'error', result });
+                    } catch (err) {
+                        return sendJson(500, { status: 'error', message: err.message });
+                    }
+                });
+                return;
+            }
+
+            if (pathname === '/api/notifications/sms/msg91/test' && req.method === 'POST') {
+                const clientIp = req.socket.remoteAddress || '127.0.0.1';
+                const rl = checkRateLimit(clientIp, 'msg91_test', 50, 600000); // 50 tests per 10 mins
+                if (!rl.allowed) {
+                    return sendJson(429, { status: 'error', message: 'Rate limit exceeded for MSG91 test endpoint.' });
+                }
+
+                let body = '';
+                req.on('data', chunk => { body += chunk; });
+                req.on('end', async () => {
+                    try {
+                        const { to, message } = JSON.parse(body || '{}');
+                        const { sendSMS } = await import('./smsService.js');
+                        const { normalizeIndianPhoneNumber, getNotificationRecipient } = await import('./notificationConfig.js');
+                        let target = to;
+                        if (!target) {
+                            const rec = await getNotificationRecipient();
+                            target = rec.phone;
+                        }
+                        const recipient = normalizeIndianPhoneNumber(target);
+                        if (!recipient) {
+                            return sendJson(400, { status: 'error', message: 'Valid 10-digit Indian mobile number is required.' });
+                        }
+                        const smsMessage = message || `EnviroX MSG91 SMS Integration Test Active. Time: ${new Date().toISOString()}`;
+                        const result = await sendSMS({ to: recipient, message: smsMessage });
+                        return sendJson(200, { status: 'success', recipient, result });
+                    } catch (err) {
+                        return sendJson(500, { status: 'error', message: err.message });
+                    }
+                });
+                return;
+            }
+
             if (pathname === '/api/notifications/sms/send' && req.method === 'POST') {
+                const clientIp = req.socket.remoteAddress || '127.0.0.1';
+                const rl = checkRateLimit(clientIp, 'sms_send', 5, 60000);
+                if (!rl.allowed) {
+                    return sendJson(429, { status: 'error', message: 'Rate limit exceeded for SMS sending.' });
+                }
+
                 let body = '';
                 req.on('data', chunk => { body += chunk; });
                 req.on('end', async () => {
@@ -350,6 +945,158 @@ export function createApiMiddleware() {
                 return;
             }
 
+            // Alert Lifecycle: Acknowledge Alert
+            const ackMatch = pathname.match(/^\/api\/alerts\/([a-zA-Z0-9_-]+)\/acknowledge$/);
+            if (ackMatch && req.method === 'POST') {
+                const alertId = ackMatch[1];
+                try {
+                    const col = await getCollection('alerts');
+                    if (col) {
+                        const result = await col.updateOne(
+                            { _id: alertId },
+                            {
+                                $set: {
+                                    status: 'ACKNOWLEDGED',
+                                    acknowledged_at: new Date()
+                                }
+                            }
+                        );
+                        if (result.matchedCount === 0) {
+                            return sendJson(404, { status: 'error', message: 'Alert not found' });
+                        }
+                    }
+                    return sendJson(200, { status: 'success', message: 'Alert acknowledged', alertId });
+                } catch (err) {
+                    return sendJson(500, { status: 'error', message: err.message });
+                }
+            }
+
+            // Alert Lifecycle: Resolve Alert
+            const resMatch = pathname.match(/^\/api\/alerts\/([a-zA-Z0-9_-]+)\/resolve$/);
+            if (resMatch && req.method === 'POST') {
+                const alertId = resMatch[1];
+                try {
+                    const col = await getCollection('alerts');
+                    if (col) {
+                        const result = await col.updateOne(
+                            { _id: alertId },
+                            {
+                                $set: {
+                                    status: 'RESOLVED',
+                                    is_resolved: true,
+                                    resolved_at: new Date()
+                                }
+                            }
+                        );
+                        if (result.matchedCount === 0) {
+                            return sendJson(404, { status: 'error', message: 'Alert not found' });
+                        }
+                    }
+                    return sendJson(200, { status: 'success', message: 'Alert resolved', alertId });
+                } catch (err) {
+                    return sendJson(500, { status: 'error', message: err.message });
+                }
+            }
+
+            // Alert Lifecycle: Mark Alert Read
+            const readMatch = pathname.match(/^\/api\/alerts\/([a-zA-Z0-9_-]+)\/read$/);
+            if (readMatch && req.method === 'POST') {
+                const alertId = readMatch[1];
+                try {
+                    const col = await getCollection('alerts');
+                    if (col) {
+                        await col.updateOne(
+                            { _id: alertId },
+                            {
+                                $set: {
+                                    is_read: true,
+                                    read_at: new Date()
+                                }
+                            }
+                        );
+                    }
+                    return sendJson(200, { status: 'success', message: 'Alert marked read', alertId });
+                } catch (err) {
+                    return sendJson(500, { status: 'error', message: err.message });
+                }
+            }
+
+            // Alert Lifecycle: Mark All Alerts Read
+            if (pathname === '/api/alerts/read-all' && req.method === 'POST') {
+                try {
+                    const col = await getCollection('alerts');
+                    if (col) {
+                        await col.updateMany(
+                            { is_read: { $ne: true } },
+                            {
+                                $set: {
+                                    is_read: true,
+                                    read_at: new Date()
+                                }
+                            }
+                        );
+                    }
+                    return sendJson(200, { status: 'success', message: 'All alerts marked read' });
+                } catch (err) {
+                    return sendJson(500, { status: 'error', message: err.message });
+                }
+            }
+
+            // Notification Preferences: GET
+            if (pathname === '/api/user/notification-preferences' && req.method === 'GET') {
+                try {
+                    const authRes = authenticateRequest(req);
+                    const authUser = authRes.authenticated ? authRes.user : null;
+                    const { getAuthenticatedNotificationRecipient } = await import('./notificationConfig.js');
+                    const recipient = getAuthenticatedNotificationRecipient(authUser);
+                    return sendJson(200, {
+                        status: 'success',
+                        preferences: recipient.notificationPreferences,
+                        phone: recipient.phone,
+                        email: recipient.email,
+                        phoneVerified: recipient.phoneVerified
+                    });
+                } catch (err) {
+                    return sendJson(500, { status: 'error', message: err.message });
+                }
+            }
+
+            // Notification Preferences: POST
+            if (pathname === '/api/user/notification-preferences' && req.method === 'POST') {
+                const authRes = authenticateRequest(req);
+                if (!authRes.authenticated) {
+                    return sendJson(401, { status: 'error', message: 'Authentication required to update notification preferences.' });
+                }
+
+                let body = '';
+                req.on('data', chunk => { body += chunk; });
+                req.on('end', async () => {
+                    try {
+                        const payload = JSON.parse(body || '{}');
+                        const usersCol = await getCollection('users');
+                        if (usersCol) {
+                            await usersCol.updateOne(
+                                { email: authRes.user.email },
+                                {
+                                    $set: {
+                                        notificationPreferences: payload,
+                                        updated_at: new Date()
+                                    }
+                                }
+                            );
+                        }
+                        return sendJson(200, {
+                            status: 'success',
+                            message: 'Notification preferences updated successfully.',
+                            preferences: payload
+                        });
+                    } catch (err) {
+                        return sendJson(500, { status: 'error', message: err.message });
+                    }
+                });
+                return;
+            }
+
             if (pathname === '/api/bot/simulate' && req.method === 'POST') {
                 let body = '';
                 req.on('data', chunk => { body += chunk; });
@@ -395,20 +1142,50 @@ export function createApiMiddleware() {
             }
 
             if (pathname === '/api/controls' && req.method === 'POST') {
+                const clientIp = req.socket.remoteAddress || '127.0.0.1';
+                const rl = checkRateLimit(clientIp, 'controls', 15, 10000); // Max 15 commands per 10 sec
+                if (!rl.allowed) {
+                    return sendJson(429, { status: 'error', message: 'Too many actuator commands. Rate limit exceeded.' });
+                }
+
+                // Verify auth token if provided or enforcing
+                const authResult = authenticateRequest(req, ['operator', 'admin', 'superuser']);
+                const enforceAuth = process.env.ENFORCE_ACTUATOR_AUTH === 'true' || req.headers['x-enforce-auth'] === 'true';
+                if (!authResult.authenticated && enforceAuth) {
+                    const code = authResult.error === '403' ? 403 : 401;
+                    return sendJson(code, { status: 'error', message: authResult.message });
+                }
+
                 let body = '';
-                req.on('data', chunk => { body += chunk; });
+                req.on('data', chunk => {
+                    body += chunk;
+                    if (body.length > 5000) {
+                        res.writeHead(413, { 'Content-Type': 'application/json' });
+                        res.end(JSON.stringify({ status: 'error', message: 'Payload size limit exceeded (max 5KB)' }));
+                        req.destroy();
+                    }
+                });
                 req.on('end', async () => {
                     try {
                         const { actuator_type, action } = JSON.parse(body || '{}');
-                        if (!actuator_type) {
-                            return sendJson(400, { status: 'error', message: 'actuator_type is required (e.g. water_pump, filter_unit, exhaust_fan, spray_valve)' });
+                        const validActuators = ['grow_lights', 'grow_light', 'water_pump', 'pump', 'filter_unit', 'exhaust_fan', 'spray_valve'];
+                        if (!actuator_type || !validActuators.includes(actuator_type)) {
+                            return sendJson(400, { status: 'error', message: `Invalid actuator_type '${actuator_type}'. Allowed: ${validActuators.join(', ')}` });
                         }
+
+                        const validActions = ['ON', 'OFF', 'AUTO', 'MANUAL_ON', 'MANUAL_OFF', 'AUTOMATIC'];
+                        if (action && !validActions.includes(String(action).toUpperCase())) {
+                            return sendJson(400, { status: 'error', message: `Invalid action '${action}'. Allowed: ${validActions.join(', ')}` });
+                        }
+
                         const { setActuatorState, getActuatorStates } = await import('./actuatorService.js');
                         await setActuatorState(actuator_type, action || 'AUTO');
                         const updated = await getActuatorStates();
                         return sendJson(200, { status: 'success', message: `${actuator_type} switched to ${action || 'AUTO'}`, data: updated });
                     } catch (err) {
-                        return sendJson(500, { status: 'error', message: err.message });
+                        console.error('❌ [/api/controls Error]:', err.message);
+                        const status = err.message.includes('Safety Lockout') ? 409 : (err.message.includes('OFFLINE') ? 503 : 500);
+                        return sendJson(status, { status: 'error', message: err.message });
                     }
                 });
                 return;
@@ -469,10 +1246,28 @@ export function createApiMiddleware() {
                 req.on('end', async () => {
                     try {
                         const { streamUrl, ip } = JSON.parse(body || '{}');
-                        const effectiveUrl = streamUrl || (ip ? `http://${ip.replace(/^http:\/\//, '')}/stream` : '');
-                        const { setESP32StreamUrl } = await import('./esp32SerialService.js');
-                        const resData = setESP32StreamUrl(effectiveUrl);
-                        return sendJson(200, { status: 'success', data: resData });
+                        let cleanIp = null;
+                        let effectiveUrl = '';
+                        if (ip) {
+                            cleanIp = ip.replace(/^https?:\/\//, '').replace(/\/.*$/, '').trim();
+                        }
+                        if (streamUrl) {
+                            effectiveUrl = streamUrl.trim();
+                        } else if (cleanIp) {
+                            effectiveUrl = `http://${cleanIp}/stream`;
+                        }
+
+                        const { setESP32StreamUrl, getESP32Status } = await import('./esp32SerialService.js');
+                        const resData = setESP32StreamUrl(effectiveUrl, cleanIp);
+                        const st = getESP32Status();
+                        console.log(`📹 [ESP32-CAM Global Config Updated] IP: ${st.cameraIp} | Stream: ${st.streamUrl}`);
+                        return sendJson(200, {
+                            status: 'success',
+                            cameraIp: st.cameraIp,
+                            ip: st.cameraIp,
+                            streamUrl: st.streamUrl,
+                            data: resData
+                        });
                     } catch (e) {
                         return sendJson(500, { status: 'error', message: e.message });
                     }
@@ -480,22 +1275,119 @@ export function createApiMiddleware() {
                 return;
             }
 
+            if (pathname === '/api/camera/pi-frame' && req.method === 'POST') {
+                let body = '';
+                req.on('data', chunk => { body += chunk; });
+                req.on('end', () => {
+                    try {
+                        const parsed = JSON.parse(body || '{}');
+                        const { device_id, timestamp, content_type, image_base64 } = parsed;
+
+                        if (!image_base64 || typeof image_base64 !== 'string' || image_base64.trim() === '') {
+                            return sendJson(400, { status: 'error', message: 'Missing or empty image_base64 payload' });
+                        }
+                        if (content_type !== 'image/jpeg') {
+                            return sendJson(400, { status: 'error', message: 'Invalid content_type; expected "image/jpeg"' });
+                        }
+
+                        const received_at = Date.now();
+                        latestPiFrame = {
+                            device_id: device_id || 'raspberrypi',
+                            timestamp: timestamp || received_at,
+                            content_type: 'image/jpeg',
+                            image_base64: image_base64.trim(),
+                            received_at
+                        };
+
+                        piFrameHistory.push(latestPiFrame);
+                        if (piFrameHistory.length > 5) {
+                            piFrameHistory.shift();
+                        }
+
+                        return sendJson(200, { status: 'ok', received_at });
+                    } catch (err) {
+                        return sendJson(400, { status: 'error', message: 'Invalid JSON payload: ' + err.message });
+                    }
+                });
+                return;
+            }
+
+            if (pathname === '/api/camera/pi-frame' && req.method === 'GET') {
+                if (!latestPiFrame) {
+                    return sendJson(404, { status: 'no frame yet' });
+                }
+                const now = Date.now();
+                const age_ms = Math.max(0, now - (latestPiFrame.received_at || now));
+                res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+                return sendJson(200, {
+                    device_id: latestPiFrame.device_id,
+                    timestamp: latestPiFrame.timestamp,
+                    image_base64: latestPiFrame.image_base64,
+                    received_at: latestPiFrame.received_at,
+                    age_ms
+                });
+            }
+
+            if (pathname === '/api/camera/pi-status' && req.method === 'GET') {
+                const now = Date.now();
+                const age_ms = latestPiFrame ? Math.max(0, now - (latestPiFrame.received_at || now)) : null;
+                const isConnected = Boolean(latestPiFrame && age_ms !== null && age_ms <= 5000);
+                res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+                return sendJson(200, {
+                    connected: isConnected,
+                    last_seen: latestPiFrame ? latestPiFrame.received_at : null,
+                    age_ms,
+                    device_id: latestPiFrame ? latestPiFrame.device_id : null
+                });
+            }
+
             if (pathname === '/api/camera/status' && req.method === 'GET') {
-                const { getESP32Status } = await import('./esp32SerialService.js');
-                const st = getESP32Status();
+                const { getESP32Status, markCameraOnline } = await import('./esp32SerialService.js');
+                let st = getESP32Status();
+
+                // If not marked connected, probe physical camera quickly (max 800ms)
+                if (!st.connected && st.cameraIp) {
+                    try {
+                        const targetStream = st.streamUrl || 'http://ossie.local:8080/?action=stream';
+                        const parsedUrl = new URL(targetStream.startsWith('http') ? targetStream : `http://${targetStream}`);
+                        const httpModule = await import('http');
+                        const isReachable = await new Promise((resolve) => {
+                            const probe = httpModule.default.request({
+                                hostname: parsedUrl.hostname || 'ossie.local',
+                                port: parsedUrl.port || 8080,
+                                path: parsedUrl.pathname + parsedUrl.search,
+                                method: 'GET',
+                                timeout: 1200
+                            }, (pRes) => {
+                                resolve(pRes.statusCode >= 200 && pRes.statusCode < 500);
+                            });
+                            probe.on('error', () => resolve(false));
+                            probe.on('timeout', () => { probe.destroy(); resolve(false); });
+                            probe.end();
+                        });
+                        if (isReachable) {
+                            markCameraOnline(parsedUrl.hostname);
+                            st = getESP32Status();
+                        }
+                    } catch (_e) { }
+                }
+
                 return sendJson(200, {
                     status: 'success',
-                    streamUrl: st.streamUrl,
+                    cameraIp: st.cameraIp || 'ossie.local',
+                    ip: st.cameraIp || 'ossie.local',
+                    streamUrl: st.streamUrl || 'http://ossie.local:8080/?action=stream',
                     connected: Boolean(st.connected),
                     flashLed: st.flashLed || false,
-                    lastPing: st.lastPing
+                    lastPing: st.lastPing,
+                    lastSeen: st.lastPing
                 });
             }
 
             if (pathname === '/api/camera/led' && (req.method === 'GET' || req.method === 'POST')) {
                 const { getESP32Status, setESP32FlashLed } = await import('./esp32SerialService.js');
                 const st = getESP32Status();
-                
+
                 let targetVal = 0;
                 if (req.method === 'GET') {
                     const qVal = url.searchParams.get('val');
@@ -505,7 +1397,7 @@ export function createApiMiddleware() {
 
                 const executeLedCommand = async (val) => {
                     setESP32FlashLed(val > 0);
-                    let targetIp = url.searchParams.get('ip');
+                    let targetIp = url.searchParams.get('ip') || st.cameraIp || '10.152.37.105';
                     if (!targetIp && st.streamUrl && !st.streamUrl.includes('<ESP32-CAM-IP>')) {
                         try {
                             const parsed = new URL(st.streamUrl);
@@ -571,18 +1463,19 @@ export function createApiMiddleware() {
             }
 
             if (pathname === '/api/camera/stream' && req.method === 'GET') {
-                const { getESP32Status } = await import('./esp32SerialService.js');
+                const { getESP32Status, markCameraOnline } = await import('./esp32SerialService.js');
                 const st = getESP32Status();
-                
-                const customIp = url.searchParams.get('ip') || url.searchParams.get('streamUrl');
-                const rawTarget = customIp || st.cameraIp || '10.152.37.105';
-                let targetUrl = rawTarget.startsWith('http') 
-                    ? rawTarget 
-                    : `http://${rawTarget}/stream`;
 
-                if (targetUrl.includes('/api/camera')) {
-                    targetUrl = `http://${st.cameraIp || '10.152.37.105'}/stream`;
+                const customIp = url.searchParams.get('ip') || url.searchParams.get('streamUrl');
+                let targetUrl = customIp || st.streamUrl || 'http://ossie.local:8080/?action=stream';
+                if (!targetUrl.startsWith('http')) {
+                    targetUrl = `http://${targetUrl}`;
                 }
+                if (targetUrl.includes('/api/camera')) {
+                    targetUrl = st.streamUrl || 'http://ossie.local:8080/?action=stream';
+                }
+
+                console.log(`📡 [Camera Stream Proxy] Connecting to ${targetUrl} [Stored IP: ${st.cameraIp}]`);
 
                 try {
                     const parsed = new URL(targetUrl);
@@ -591,10 +1484,16 @@ export function createApiMiddleware() {
                         hostname: parsed.hostname,
                         port: parsed.port || 80,
                         path: parsed.pathname + (parsed.search || ''),
-                        method: 'GET',
-                        timeout: 3000
+                        method: 'GET'
                     }, (proxyRes) => {
+                        // Keep stream connection alive indefinitely
+                        if (proxyRes.socket) {
+                            proxyRes.socket.setTimeout(0);
+                            proxyRes.socket.setKeepAlive(true, 1000);
+                        }
+
                         if (proxyRes.statusCode >= 200 && proxyRes.statusCode < 300) {
+                            markCameraOnline(parsed.hostname);
                             res.writeHead(proxyRes.statusCode, {
                                 'Content-Type': proxyRes.headers['content-type'] || 'multipart/x-mixed-replace; boundary=123456789000000000000987654321',
                                 'Access-Control-Allow-Origin': '*',
@@ -603,6 +1502,24 @@ export function createApiMiddleware() {
                                 'Expires': '0'
                             });
                             proxyRes.pipe(res);
+
+                            // Sniff stream chunks to extract latest complete JPEG frame for instantaneous AI capture
+                            let mjpegBuf = Buffer.alloc(0);
+                            proxyRes.on('data', (chunk) => {
+                                mjpegBuf = Buffer.concat([mjpegBuf, chunk]);
+                                if (mjpegBuf.length > 524288) {
+                                    mjpegBuf = mjpegBuf.subarray(mjpegBuf.length - 131072);
+                                }
+                                const start = mjpegBuf.indexOf(Buffer.from([0xFF, 0xD8]));
+                                if (start !== -1) {
+                                    const end = mjpegBuf.indexOf(Buffer.from([0xFF, 0xD9]), start + 2);
+                                    if (end !== -1) {
+                                        latestStreamFrameBuffer = Buffer.from(mjpegBuf.subarray(start, end + 2));
+                                        latestStreamFrameTime = Date.now();
+                                        mjpegBuf = mjpegBuf.subarray(end + 2);
+                                    }
+                                }
+                            });
                         } else {
                             if (!res.headersSent) {
                                 res.writeHead(503, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
@@ -611,18 +1528,19 @@ export function createApiMiddleware() {
                         }
                     });
 
+                    // Initial connect timeout only (5s to establish TCP connection)
+                    proxyReq.setTimeout(5000, () => {
+                        if (!res.headersSent) {
+                            proxyReq.destroy();
+                            res.writeHead(504, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+                            res.end(JSON.stringify({ status: 'offline', message: `Timeout connecting to ESP32-CAM at ${targetUrl}` }));
+                        }
+                    });
+
                     proxyReq.on('error', (err) => {
                         if (!res.headersSent) {
                             res.writeHead(503, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
                             res.end(JSON.stringify({ status: 'offline', message: `Could not reach ESP32-CAM at ${targetUrl}: ${err.message}` }));
-                        }
-                    });
-
-                    proxyReq.on('timeout', () => {
-                        proxyReq.destroy();
-                        if (!res.headersSent) {
-                            res.writeHead(504, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-                            res.end(JSON.stringify({ status: 'offline', message: `Timeout connecting to ESP32-CAM at ${targetUrl}` }));
                         }
                     });
 
@@ -642,18 +1560,40 @@ export function createApiMiddleware() {
             }
 
             if (pathname === '/api/camera/capture' && req.method === 'GET') {
-                const { getESP32Status } = await import('./esp32SerialService.js');
+                const { getESP32Status, markCameraOnline } = await import('./esp32SerialService.js');
                 const st = getESP32Status();
-                
+
+                // If live stream is actively delivering frames (< 3.0s ago), immediately serve the cached frame.
+                // This eliminates ESP32 socket contention, avoids camera mutex contention, and responds in < 1ms!
+                if (latestStreamFrameBuffer && (Date.now() - latestStreamFrameTime < 3000)) {
+                    markCameraOnline(st.cameraIp);
+                    res.writeHead(200, {
+                        'Content-Type': 'image/jpeg',
+                        'Content-Length': latestStreamFrameBuffer.length,
+                        'Access-Control-Allow-Origin': '*',
+                        'Cache-Control': 'no-cache, no-store, must-revalidate',
+                        'X-Frame-Source': 'live-stream-cache'
+                    });
+                    res.end(latestStreamFrameBuffer);
+                    return;
+                }
+
                 const customIp = url.searchParams.get('ip');
-                const rawHost = customIp || st.cameraIp || '10.152.37.105';
-                let captureUrl = rawHost.startsWith('http')
-                    ? rawHost.replace(/\/stream\/?$/, '/capture')
-                    : `http://${rawHost}/capture`;
+                let captureUrl = customIp || st.streamUrl || 'http://ossie.local:8080/?action=stream';
+                if (!captureUrl.startsWith('http')) {
+                    captureUrl = `http://${captureUrl}`;
+                }
+                if (captureUrl.includes('?action=stream')) {
+                    captureUrl = captureUrl.replace('?action=stream', '?action=snapshot');
+                } else if (!captureUrl.includes('?action=snapshot') && !captureUrl.endsWith('/capture')) {
+                    captureUrl = captureUrl.replace(/\/+$/, '') + '/capture';
+                }
 
                 if (captureUrl.includes('/api/camera')) {
-                    captureUrl = `http://${st.cameraIp || '10.152.37.105'}/capture`;
+                    captureUrl = 'http://ossie.local:8080/?action=snapshot';
                 }
+
+                console.log(`📸 [Camera Capture Proxy] Fetching frame from ${captureUrl} [Stored IP: ${st.cameraIp}] @ ${new Date().toISOString()}`);
 
                 try {
                     const parsed = new URL(captureUrl);
@@ -663,9 +1603,10 @@ export function createApiMiddleware() {
                         port: parsed.port || 80,
                         path: parsed.pathname + (parsed.search || ''),
                         method: 'GET',
-                        timeout: 3000
+                        timeout: 6000
                     }, (proxyRes) => {
                         if (proxyRes.statusCode >= 200 && proxyRes.statusCode < 300) {
+                            markCameraOnline(parsed.hostname);
                             res.writeHead(proxyRes.statusCode, {
                                 'Content-Type': 'image/jpeg',
                                 'Access-Control-Allow-Origin': '*',
@@ -681,6 +1622,7 @@ export function createApiMiddleware() {
                     });
 
                     proxyReq.on('error', (err) => {
+                        console.warn(`⚠️ [Camera Capture Proxy] Snapshot unreachable at ${captureUrl}: ${err.message}`);
                         if (!res.headersSent) {
                             res.writeHead(503, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
                             res.end(JSON.stringify({ status: 'offline', message: err.message }));
@@ -689,6 +1631,7 @@ export function createApiMiddleware() {
 
                     proxyReq.on('timeout', () => {
                         proxyReq.destroy();
+                        console.warn(`⚠️ [Camera Capture Proxy] Snapshot timeout at ${captureUrl}`);
                         if (!res.headersSent) {
                             res.writeHead(504, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
                             res.end(JSON.stringify({ status: 'offline', message: 'ESP32-CAM capture timeout' }));
@@ -706,27 +1649,82 @@ export function createApiMiddleware() {
                 }
             }
 
+
+
             if (pathname === '/api/ai/predict/pest' && req.method === 'POST') {
                 let body = '';
                 req.on('data', chunk => { body += chunk; });
                 req.on('end', async () => {
                     try {
                         const payload = JSON.parse(body || '{}');
-                        const { runPestDetectionAI } = await import('./aiModelService.js');
-                        const result = runPestDetectionAI(payload);
 
-                        insertAndSync('pest_detection_logs', {
-                            target_crop: result.target_crop,
-                            pest_detected: result.detected_pest,
-                            pest_count: result.pest_count,
-                            severity_level: result.severity_level,
-                            ai_confidence: result.ai_confidence,
-                            sector_zone: result.sector_zone,
+                        if (!payload.image) {
+                            return sendJson(400, {
+                                status: 'error',
+                                message: 'No camera image frame provided for Pest AI scan'
+                            });
+                        }
+
+                        let pyResult = null;
+                        try {
+                            const pyRes = await fetch('http://127.0.0.1:8001/predict/base64', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    image: payload.image,
+                                    cropName: payload.cropName || 'Tomato (Solanum lycopersicum)',
+                                    ai_type: 'pest'
+                                }),
+                                signal: AbortSignal.timeout(15000)
+                            });
+                            if (pyRes.ok) {
+                                pyResult = await pyRes.json();
+                            } else {
+                                console.warn('[YOLO Pest Inference HTTP Status]:', pyRes.status);
+                            }
+                        } catch (pyErr) {
+                            console.warn('[YOLO Pest Inference Connect Warning]:', pyErr.message);
+                        }
+
+                        if (!pyResult || !pyResult.success) {
+                            return sendJson(503, {
+                                status: 'error',
+                                message: 'Real YOLO inference server is offline on port 8001. Please run `npm run ai`.'
+                            });
+                        }
+
+                        const pestResult = {
+                            target_crop: payload.cropName || pyResult.target_crop || 'Tomato (Solanum lycopersicum)',
+                            detected_pest: pyResult.detected_pest || null,
+                            pest_count: pyResult.pest_count || 0,
+                            severity_level: pyResult.severity_level || 'LOW',
+                            ai_confidence: pyResult.ai_confidence || null,
+                            sector_zone: 'Sector B (Stem Zone)',
                             detection_source: payload.detection_source || 'live_camera',
-                            recommended_action: result.recommended_action
-                        }).catch(err => console.warn('[Pest Sync Warning]:', err.message));
+                            threat_status: pyResult.pest_count > 0 ? `Active Threat - ${pyResult.detected_pest}` : 'No Active Threat Detected',
+                            recommended_action: pyResult.recommended_action || 'Maintain routine canopy monitoring.',
+                            bounding_boxes: pyResult.bounding_boxes || [],
+                            boxes: pyResult.bounding_boxes || [],
+                            annotated_image: pyResult.annotated_image || null,
+                            detected_at: new Date().toISOString(),
+                            isMock: false,
+                            model_ready: true
+                        };
 
-                        return sendJson(200, { status: 'success', prediction: result });
+                        if (pestResult.detected_pest) {
+                            insertAndSync('pest_detection_logs', {
+                                target_crop: pestResult.target_crop,
+                                pest_detected: pestResult.detected_pest,
+                                pest_count: pestResult.pest_count,
+                                severity_level: pestResult.severity_level,
+                                ai_confidence: pestResult.ai_confidence,
+                                sector_zone: pestResult.sector_zone,
+                                detection_source: pestResult.detection_source,
+                                recommended_action: pestResult.recommended_action
+                            }).catch(err => console.warn('[Pest Sync Warning]:', err.message));
+                        }
+
+                        return sendJson(200, { status: 'success', prediction: pestResult });
                     } catch (e) {
                         return sendJson(500, { status: 'error', message: e.message });
                     }
@@ -751,17 +1749,18 @@ export function createApiMiddleware() {
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({
                                     image: payload.image,
-                                    cropName: payload.cropName || 'Tomato (Solanum lycopersicum)'
+                                    cropName: payload.cropName || 'Tomato (Solanum lycopersicum)',
+                                    ai_type: 'disease'
                                 }),
                                 signal: AbortSignal.timeout(15000)
                             });
                             if (pyRes.ok) {
                                 pyResult = await pyRes.json();
                             } else {
-                                console.warn('[YOLO Inference HTTP Status]:', pyRes.status);
+                                console.warn('[YOLO Disease Inference HTTP Status]:', pyRes.status);
                             }
                         } catch (pyErr) {
-                            console.warn('[YOLO Inference Connect Warning]:', pyErr.message);
+                            console.warn('[YOLO Disease Inference Connect Warning]:', pyErr.message);
                         }
 
                         if (!pyResult || !pyResult.success) {
@@ -771,24 +1770,16 @@ export function createApiMiddleware() {
                             });
                         }
 
-                        insertAndSync('disease_detection_logs', {
-                            crop_name: pyResult.crop_name,
-                            disease_name: pyResult.disease_name,
-                            confidence_score: pyResult.confidence_score,
-                            severity_level: pyResult.severity_level,
-                            detection_source: payload.detection_source || 'upload',
-                            treatment_advice: pyResult.treatment_advice
-                        }).catch(err => console.warn('[Disease Sync Warning]:', err.message));
-
-                        insertAndSync('plant_growth_logs', {
-                            crop_name: pyResult.crop_name,
-                            plant_height_cm: 42.5,
-                            leaf_count: 18,
-                            growth_stage: 'Vegetative',
-                            health_index: pyResult.health_index,
-                            crop_health_status: pyResult.disease_risk === 'LOW' ? 'Healthy' : 'At Risk',
-                            disease_risk: pyResult.disease_risk
-                        }).catch(err => console.warn('[Plant Growth Sync Warning]:', err.message));
+                        if (pyResult.disease_name) {
+                            insertAndSync('disease_detection_logs', {
+                                crop_name: pyResult.crop_name,
+                                disease_name: pyResult.disease_name,
+                                confidence_score: pyResult.confidence_score,
+                                severity_level: pyResult.severity_level,
+                                detection_source: payload.detection_source || 'upload',
+                                treatment_advice: pyResult.treatment_advice
+                            }).catch(err => console.warn('[Disease Sync Warning]:', err.message));
+                        }
 
                         return sendJson(200, { status: 'success', prediction: pyResult });
                     } catch (e) {
@@ -800,7 +1791,7 @@ export function createApiMiddleware() {
 
             if (pathname === '/api/crop/snapshot' && req.method === 'POST') {
                 const contentType = req.headers['content-type'] || '';
-                
+
                 if (contentType.includes('image/') || contentType.includes('application/octet-stream')) {
                     const chunks = [];
                     req.on('data', chunk => chunks.push(chunk));
@@ -918,6 +1909,36 @@ export function createApiMiddleware() {
                 });
             }
 
+            if ((pathname.startsWith('/api/ai/') || pathname.startsWith('/api/pi-ai/')) && req.method === 'GET') {
+                const subPath = pathname.replace(/^\/api\/(pi-)?ai/, '/api/ai');
+                const targetUrl = `http://ossie.local:8001${subPath}${url.search || ''}`;
+                try {
+                    const proxyReq = http.get(targetUrl, { family: 4 }, (proxyRes) => {
+                        if (!res.headersSent) {
+                            res.writeHead(proxyRes.statusCode, {
+                                'Content-Type': proxyRes.headers['content-type'] || 'application/json',
+                                'Access-Control-Allow-Origin': '*',
+                                'Cache-Control': 'no-cache, no-store, must-revalidate'
+                            });
+                            proxyRes.pipe(res);
+                        }
+                    });
+                    proxyReq.on('error', (err) => {
+                        if (!res.headersSent) {
+                            res.writeHead(503, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+                            res.end(JSON.stringify({ status: 'offline', message: `Pi AI unreachable: ${err.message}` }));
+                        }
+                    });
+                    return;
+                } catch (e) {
+                    if (!res.headersSent) {
+                        res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+                        res.end(JSON.stringify({ status: 'error', message: e.message }));
+                    }
+                    return;
+                }
+            }
+
             if ((pathname === '/data' || pathname === '/api/sensor/data' || pathname === '/api/data/sensor') && req.method === 'GET') {
                 const { getLatestSensorData } = await import('./esp32SerialService.js');
                 const sensorData = getLatestSensorData();
@@ -929,7 +1950,27 @@ export function createApiMiddleware() {
                 req.on('data', chunk => { body += chunk; });
                 req.on('end', async () => {
                     try {
-                        const payload = JSON.parse(body || '{}');
+                        if (!body || !body.trim()) {
+                            return sendJson(400, {
+                                success: false,
+                                status: 'error',
+                                reason: 'EMPTY_PAYLOAD',
+                                message: 'Request body cannot be empty'
+                            });
+                        }
+
+                        let payload;
+                        try {
+                            payload = JSON.parse(body);
+                        } catch (jsonErr) {
+                            return sendJson(400, {
+                                success: false,
+                                status: 'error',
+                                reason: 'INVALID_JSON_PAYLOAD',
+                                message: jsonErr.message
+                            });
+                        }
+
                         const { ingestSensorData } = await import('./esp32SerialService.js');
                         const normalized = ingestSensorData(payload);
 
@@ -937,11 +1978,10 @@ export function createApiMiddleware() {
                         let deviceId = 1;
 
                         try {
-                            const { pool } = await import('./db.js');
-                            const devCheck = await pool.query('SELECT device_id FROM devices WHERE device_uid = $1 LIMIT 1', [normalized.device]);
-                            if (devCheck.rows.length > 0) {
-                                deviceId = devCheck.rows[0].device_id;
-                            }
+                            const devCol = await getCollection('devices');
+                            const devUid = normalized.device_id || normalized.device || 'IOTREX-RPI-01';
+                            const devDoc = await devCol.findOne({ $or: [{ device_uid: devUid }, { device_id: 1 }] });
+                            if (devDoc) deviceId = devDoc.device_id || 1;
                         } catch (_dErr) {
                             deviceId = 1;
                         }
@@ -971,8 +2011,7 @@ export function createApiMiddleware() {
                             normalized.humidity !== undefined ||
                             normalized.co2 !== undefined ||
                             normalized.gasDetected !== undefined ||
-                            normalized.rainDetected !== undefined ||
-                            normalized.buzzer !== undefined
+                            normalized.rainDetected !== undefined
                         ) {
                             const airRecord = {
                                 device_id: deviceId,
@@ -995,10 +2034,6 @@ export function createApiMiddleware() {
                                 airRecord.rain_detected = normalized.rainDetected;
                             }
 
-                            if (normalized.buzzer !== undefined && normalized.buzzer !== null) {
-                                airRecord.buzzer_active = normalized.buzzer;
-                            }
-
                             insertAndSync('air_quality_logs', airRecord).catch(e => console.warn('[Sensor Sync Air Warning]:', e.message));
                         }
 
@@ -1013,24 +2048,38 @@ export function createApiMiddleware() {
                             insertAndSync('water_quality_logs', waterRecord).catch(e => console.warn('[Sensor Sync Water Warning]:', e.message));
                         }
 
-                        if (normalized.streamUrl) {
-                            try {
-                                const { pool } = await import('./db.js');
-                                pool.query('UPDATE devices SET esp32_cam_stream_url = $1, last_ping = NOW() WHERE device_uid = $2 OR device_id = $3', [normalized.streamUrl, normalized.device, deviceId]).catch(() => {});
-                            } catch (_camErr) {
-                            }
+                        try {
+                            const devUid = normalized.device_id || normalized.device || 'IOTREX-RPI-01';
+                            getCollection('devices').then(col => {
+                                const updateFields = {
+                                    device_id: deviceId,
+                                    device_uid: devUid,
+                                    last_ping: new Date(),
+                                    status: 'active',
+                                    updated_at: new Date()
+                                };
+                                if (normalized.streamUrl) updateFields.esp32_cam_stream_url = normalized.streamUrl;
+                                col.updateOne(
+                                    { device_uid: devUid },
+                                    { $set: updateFields },
+                                    { upsert: true }
+                                ).catch(() => { });
+                            }).catch(() => { });
+                        } catch (_mDevErr) {
                         }
 
                         return sendJson(200, {
+                            success: true,
                             status: 'success',
-                            message: 'ESP32 sensor data received and processed',
+                            message: 'Sensor data received',
                             data: normalized
                         });
-                    } catch (parseErr) {
-                        return sendJson(400, {
+                    } catch (err) {
+                        console.error('[Sensor Endpoint Error]:', err.message);
+                        return sendJson(500, {
+                            success: false,
                             status: 'error',
-                            reason: 'INVALID_JSON_PAYLOAD',
-                            message: parseErr.message
+                            message: 'Failed to process sensor data: ' + err.message
                         });
                     }
                 });

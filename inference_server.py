@@ -32,6 +32,7 @@ print(f"Model loaded successfully. {len(CLASS_NAMES)} classes available.")
 class Base64PredictRequest(BaseModel):
     image: str
     cropName: Optional[str] = "Tomato (Solanum lycopersicum)"
+    ai_type: Optional[str] = "pest"
 
 
 def format_disease_name(raw_name: str) -> str:
@@ -39,16 +40,15 @@ def format_disease_name(raw_name: str) -> str:
     return " ".join(w.capitalize() for w in cleaned.split())
 
 
-def generate_agronomic_analysis(disease_name: str, confidence: float, count: int, health_score: int) -> dict:
-    if count == 0:
+def generate_agronomic_analysis(disease_name: str, confidence: float, count: int, health_score: Optional[int]) -> dict:
+    if count == 0 or not disease_name:
         return {
-            "diagnosis": "Healthy Foliage — No Pathological Lesions Detected",
+            "diagnosis": "No Pathological Lesions or Active Pests Detected",
             "analysis": (
-                "The neural model scanned 102 agricultural pathology categories and found zero "
-                "active lesions, pests, or fungal blights. Leaf lamina displays uniform chlorophyll "
-                "saturation and structural integrity. Continue routine irrigation and monitoring."
+                "The neural model scanned the frame against agricultural pathology and pest "
+                "categories and found zero active lesions or pest clusters."
             ),
-            "treatment": "Maintain standard nutrient solution and preventative IPM schedule."
+            "treatment": "Maintain routine crop monitoring and standard IPM schedule."
         }
 
     is_pest = any(p in disease_name.lower() for p in ["aphid", "mite", "thrip", "worm", "caterpillar", "fly", "beetle", "bug", "moth", "roller"])
@@ -66,8 +66,7 @@ def generate_agronomic_analysis(disease_name: str, confidence: float, count: int
         diagnosis = f"{disease_name} pathology detected ({lesion_plural})"
         analysis = (
             f"Pathological tissue analysis confirms {disease_name} symptoms across {lesion_plural} "
-            f"with {confidence:.1f}% confidence. Folio necrosis or cellular degradation observed. "
-            f"Calculated foliar health index reduced to {health_score}/100."
+            f"with {confidence:.1f}% confidence. Folio necrosis or cellular degradation observed."
         )
         treatment = "Isolate affected canopy zones, reduce ambient canopy humidity, and apply approved bio-fungicidal spray."
 
@@ -78,7 +77,7 @@ def generate_agronomic_analysis(disease_name: str, confidence: float, count: int
     }
 
 
-def process_pil_image(image: Image.Image, crop_name: str = "Tomato"):
+def process_pil_image(image: Image.Image, crop_name: str = "Tomato", ai_type: str = "pest"):
     start = time.time()
     img_w, img_h = image.size
 
@@ -146,26 +145,7 @@ def process_pil_image(image: Image.Image, crop_name: str = "Tomato"):
     lesions.sort(key=lambda d: d["confidence"], reverse=True)
 
     pest_count = len(detections)
-    if pest_count > 0:
-        top = detections[0]
-        primary_disease = top["class_name"]
-        primary_conf = top["confidence_pct"]
-        health_score_num = max(20, min(95, round(100 - (pest_count * 12 + (primary_conf / 100.0) * 20))))
-        disease_risk = "HIGH" if primary_conf > 75 or pest_count >= 2 else "MEDIUM"
-        severity_level = "HIGH" if pest_count >= 3 or primary_conf > 85 else "MEDIUM"
-    else:
-        primary_disease = "Healthy Foliage"
-        primary_conf = 98.5
-        health_score_num = 95
-        disease_risk = "LOW"
-        severity_level = "LOW"
 
-    health_score_str = f"{health_score_num}/100"
-    conf_str = f"{primary_conf:.1f}%"
-
-    agronomy = generate_agronomic_analysis(primary_disease, primary_conf, pest_count, health_score_num)
-
-    # Annotated image from OpenCV
     annotated_b64 = None
     try:
         annotated_bgr = results.plot()
@@ -177,36 +157,77 @@ def process_pil_image(image: Image.Image, crop_name: str = "Tomato"):
 
     inference_ms = round((time.time() - start) * 1000, 1)
 
-    return {
-        "success": True,
-        "inference_ms": inference_ms,
-        "disease": primary_disease,
-        "disease_name": primary_disease,
-        "confidence": primary_conf,
-        "confidence_str": conf_str,
-        "confidence_score": primary_conf,
-        "health_score": health_score_str,
-        "healthScore": health_score_str,
-        "health_index": health_score_num,
-        "diagnosis": agronomy["diagnosis"],
-        "analysis": agronomy["analysis"],
-        "full_analysis": agronomy["analysis"],
-        "treatment_advice": agronomy["treatment"],
-        "lesions": lesions,
-        "lesion_locations": [l["location"] for l in lesions],
-        "bounding_boxes": bounding_boxes,
-        "boxes": bounding_boxes,
-        "detections": detections,
-        "pest_count": pest_count,
-        "disease_risk": disease_risk,
-        "severity_level": severity_level,
-        "crop_name": crop_name,
-        "model_ready": True,
-        "isMock": False,
-        "annotated_image": annotated_b64,
-        "image_width": img_w,
-        "image_height": img_h
-    }
+    if ai_type == "pest":
+        if pest_count > 0:
+            top = detections[0]
+            detected_pest = top["class_name"]
+            confidence = top["confidence_pct"]
+            severity_level = "HIGH" if pest_count >= 3 or confidence > 85 else "MEDIUM"
+            agronomy = generate_agronomic_analysis(detected_pest, confidence, pest_count, None)
+            treatment_action = agronomy["treatment"]
+        else:
+            detected_pest = None
+            confidence = None
+            severity_level = "LOW"
+            treatment_action = "No pests detected. Maintain regular canopy inspection."
+
+        return {
+            "success": True,
+            "inference_ms": inference_ms,
+            "target_crop": crop_name,
+            "detected_pest": detected_pest,
+            "pest_count": pest_count,
+            "ai_confidence": confidence,
+            "severity_level": severity_level,
+            "recommended_action": treatment_action,
+            "bounding_boxes": bounding_boxes,
+            "boxes": bounding_boxes,
+            "detections": detections,
+            "annotated_image": annotated_b64,
+            "detected_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "isMock": False,
+            "model_ready": True
+        }
+    else: # plant / disease
+        if pest_count > 0:
+            top = detections[0]
+            primary_disease = top["class_name"]
+            confidence = top["confidence_pct"]
+            health_index = max(20, min(95, round(100 - (pest_count * 12 + (confidence / 100.0) * 20))))
+            disease_risk = "HIGH" if confidence > 75 or pest_count >= 2 else "MEDIUM"
+            severity_level = "HIGH" if pest_count >= 3 or confidence > 85 else "MEDIUM"
+            agronomy = generate_agronomic_analysis(primary_disease, confidence, pest_count, health_index)
+            treatment_advice = agronomy["treatment"]
+        else:
+            primary_disease = None
+            confidence = None
+            health_index = None
+            disease_risk = None
+            severity_level = None
+            agronomy = generate_agronomic_analysis("", 0.0, 0, None)
+            treatment_advice = agronomy["treatment"]
+
+        return {
+            "success": True,
+            "inference_ms": inference_ms,
+            "crop_name": crop_name,
+            "disease": primary_disease,
+            "disease_name": primary_disease,
+            "confidence": confidence,
+            "confidence_score": confidence,
+            "health_index": health_index,
+            "health_score": f"{health_index}/100" if health_index is not None else None,
+            "disease_risk": disease_risk,
+            "severity_level": severity_level,
+            "diagnosis": agronomy["diagnosis"],
+            "analysis": agronomy["analysis"],
+            "treatment_advice": treatment_advice,
+            "lesions": lesions,
+            "bounding_boxes": bounding_boxes,
+            "annotated_image": annotated_b64,
+            "isMock": False,
+            "model_ready": True
+        }
 
 
 @app.get("/health")
@@ -223,7 +244,7 @@ def health():
 async def predict(file: UploadFile = File(...)):
     image_bytes = await file.read()
     image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    return process_pil_image(image)
+    return process_pil_image(image, ai_type="pest")
 
 
 @app.post("/predict/base64")
@@ -233,9 +254,10 @@ async def predict_base64(payload: Base64PredictRequest):
         b64_str = b64_str.split(",", 1)[1]
     image_bytes = base64.b64decode(b64_str)
     image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    return process_pil_image(image, crop_name=payload.cropName or "Tomato")
+    return process_pil_image(image, crop_name=payload.cropName or "Tomato", ai_type=payload.ai_type or "pest")
 
 
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8001)
+

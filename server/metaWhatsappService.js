@@ -18,30 +18,27 @@ export function formatRecipient(phone) {
 }
 
 export async function getDatabaseUserPhones() {
+    let phoneList = [];
     try {
         const usersCol = await getCollection('users');
-        // only notify operators that actually have an active session logged
         const activeUsers = await usersCol.find({
-            phone: { $exists: true, $ne: '' },
-            last_login_at: { $exists: true, $ne: null }
+            phone: { $exists: true, $ne: '' }
         }).toArray();
 
-        const phoneList = activeUsers
+        phoneList = activeUsers
             .map(u => formatRecipient(u.phone))
             .filter(Boolean);
-
-        if (!phoneList.length) {
-            console.log('ℹ️ [meta-wa] No active logged-in operators found. Restricting alert broadcast.');
-            return [];
-        }
-
-        const uniqueList = Array.from(new Set(phoneList));
-        console.log(`📡 [meta-wa] Found ${uniqueList.length} operator phone(s) for dispatch:`, uniqueList);
-        return uniqueList;
     } catch (err) {
         console.warn('[meta-wa] Warning reading users collection:', err.message);
-        return [];
     }
+
+    if (!phoneList.length && DEFAULT_RECIPIENT) {
+        phoneList.push(formatRecipient(DEFAULT_RECIPIENT));
+    }
+
+    const uniqueList = Array.from(new Set(phoneList.filter(Boolean)));
+    console.log(`📡 [meta-wa] Found ${uniqueList.length} operator phone(s) for dispatch:`, uniqueList);
+    return uniqueList;
 }
 
 // Send pre-approved Meta WhatsApp template (fallback for window expiry)
@@ -122,9 +119,19 @@ export async function sendMetaTextMessage(to, messageBody) {
             return { success: true, messageId: data.messages[0].id, to: recipient };
         }
 
-        // 24-hr session window might have expired: attempt template fallback
-        console.warn(`[meta-wa] Text window closed for ${recipient}: ${data.error?.message}. Fallback to hello_world.`);
-        return await sendMetaTemplate(recipient, 'hello_world');
+        if (resp.status === 401 || data.error?.code === 190 || data.error?.type === 'OAuthException') {
+            console.error(`❌ [meta-wa] Authentication Error for ${recipient} (code ${data.error?.code}): ${data.error?.message}`);
+            return { success: false, error: data.error?.message || 'Authentication Error', code: data.error?.code, to: recipient, raw: data };
+        }
+
+        // 24-hr session window might have expired: attempt template fallback only for 24h window closure
+        if (data.error?.code === 131047 || data.error?.message?.toLowerCase().includes('re-engagement') || data.error?.message?.toLowerCase().includes('window')) {
+            console.warn(`[meta-wa] Text window closed for ${recipient}: ${data.error?.message}. Fallback to hello_world.`);
+            return await sendMetaTemplate(recipient, 'hello_world');
+        }
+
+        console.error(`❌ [meta-wa] Text dispatch failed for ${recipient}:`, data.error?.message || data);
+        return { success: false, error: data.error?.message || 'Dispatch failed', to: recipient, raw: data };
     } catch (err) {
         console.error(`❌ [meta-wa] Text dispatch error (${recipient}):`, err.message);
         return { success: false, error: err.message, to: recipient };
@@ -215,7 +222,22 @@ export async function evaluateAndNotifyMeta(tableName, record) {
     if (!record) return;
 
     try {
-        if (tableName === 'air_quality_logs') {
+        if (tableName === 'alerts') {
+            const title = record.title || record.alert_title || 'IOTrex System Alert';
+            const msgBody = record.message || record.alert_message || record.condition || 'Attention required on greenhouse system.';
+            const severity = String(record.severity || 'HIGH').toUpperCase();
+
+            const text =
+                `🚨 *[IOTrex ${severity} ALERT]*\n\n` +
+                `• *Alert:* ${title}\n` +
+                `• *Module:* ${record.module_name || record.device || 'Pest Detection'}\n` +
+                `• *Details:* ${msgBody}\n` +
+                `• *Time:* ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}\n\n` +
+                `Check IOTrex dashboard for details.`;
+
+            console.log('💬 [meta-wa] Dispatching Alert Notification to WhatsApp:', title);
+            await broadcastToOperators(text);
+        } else if (tableName === 'air_quality_logs') {
             const highAqi = record.aqi_index && Number(record.aqi_index) > 100;
             const highCo2 = record.co2_ppm && Number(record.co2_ppm) > 1000;
             const badAir = ['POOR', 'VERY POOR', 'SEVERE', 'HAZARDOUS', 'CRITICAL'].includes(
@@ -237,7 +259,7 @@ export async function evaluateAndNotifyMeta(tableName, record) {
             }
         } else if (tableName === 'pest_detection_logs') {
             const threat = String(record.threat_level || record.risk_level || '').toUpperCase();
-            if (['HIGH', 'CRITICAL', 'SEVERE'].includes(threat) || (record.pest_count && Number(record.pest_count) > 15)) {
+            if (['HIGH', 'CRITICAL', 'SEVERE'].includes(threat) || (record.pest_count && Number(record.pest_count) > 0)) {
                 console.log('[meta-wa] Triggering Pest Alert for record:', record._id || 'telemetry');
                 await dispatchMetaPestAlert(record);
             }
@@ -280,6 +302,14 @@ export async function sendMetaLoginAlert(phone, fullName = 'Operator', isFirstLo
 
 let daemonStarted = false;
 let daemonTimer = null;
+
+export function stopContinuousMetaDaemon() {
+    if (daemonTimer) {
+        clearInterval(daemonTimer);
+        daemonTimer = null;
+    }
+    daemonStarted = false;
+}
 
 export function startContinuousMetaDaemon() {
     if (daemonStarted) return;

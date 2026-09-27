@@ -4,6 +4,7 @@ import { getCollection } from './mongoDb.js';
 dotenv.config();
 
 let isPollingActive = false;
+export const getPollingStatus = () => isPollingActive;
 let pollingOffset = 0;
 let registeredChatIds = new Set();
 

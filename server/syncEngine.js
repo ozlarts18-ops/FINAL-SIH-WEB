@@ -1,5 +1,5 @@
-import { query } from './db.js';
 import { getCollection, checkMongoHealth } from './mongoDb.js';
+import { setCache, getCache, invalidateCachePattern, checkRedisHealth } from './redisClient.js';
 
 export const ALLOWED_TABLES = new Set([
     'users',
@@ -50,59 +50,61 @@ export async function queryTable(tableName, { limit = 50, orderBy, ascending = t
     }
 
     const sortColumn = orderBy || getDefaultSortColumn(tableName);
+    const filterKey = JSON.stringify(filters);
+    const cacheKey = `cache:table:${tableName}:${limit}:${sortColumn}:${ascending}:${filterKey}`;
 
+    // 1. Try Redis Fast Cache first
     try {
-        let whereClauses = [];
-        let params = [];
-        let pIndex = 1;
-
-        for (const [key, value] of Object.entries(filters)) {
-            whereClauses.push(`"${key}" = $${pIndex++}`);
-            params.push(value);
-        }
-
-        const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
-        const orderDir = ascending ? 'ASC' : 'DESC';
-        const orderSql = sortColumn ? `ORDER BY "${sortColumn}" ${orderDir}` : '';
-        const limitSql = limit ? `LIMIT ${Math.min(parseInt(limit, 10) || 50, 500)}` : '';
-
-        const sql = `SELECT * FROM "${tableName}" ${whereSql} ${orderSql} ${limitSql}`;
-        const res = await query(sql, params);
-
-        return {
-            source: 'local_postgresql',
-            data: res.rows,
-            count: res.rowCount,
-            error: null
-        };
-    } catch (localErr) {
-        console.warn(`[Local PG Error] Falling back to MongoDB for table '${tableName}':`, localErr.message);
-
-        try {
-            const col = await getCollection(tableName);
-            const mongoFilters = { ...filters };
-
-            const sortOption = {};
-            if (sortColumn) {
-                sortOption[sortColumn] = ascending ? 1 : -1;
-            }
-
-            const docs = await col
-                .find(mongoFilters)
-                .sort(sortOption)
-                .limit(Math.min(parseInt(limit, 10) || 50, 500))
-                .toArray();
-
+        const cached = await getCache(cacheKey);
+        if (cached && Array.isArray(cached.data)) {
             return {
-                source: 'mongodb_fallback',
-                data: docs || [],
-                count: docs?.length || 0,
+                source: 'redis_cache',
+                data: cached.data,
+                count: cached.data.length,
                 error: null
             };
-        } catch (mongoErr) {
-            console.error(`[MongoDB Fallback Error] Table '${tableName}':`, mongoErr.message);
-            throw new Error(`Both Local PostgreSQL and MongoDB queries failed: ${localErr.message} | ${mongoErr.message}`, { cause: mongoErr });
         }
+    } catch (_cacheErr) { }
+
+    // 2. Query Primary Database (MongoDB)
+    try {
+        const col = await getCollection(tableName);
+        if (!col) {
+            return {
+                source: 'empty_fallback',
+                data: [],
+                count: 0,
+                error: null
+            };
+        }
+        const mongoFilters = { ...filters };
+
+        const sortOption = {};
+        if (sortColumn) {
+            sortOption[sortColumn] = ascending ? 1 : -1;
+        }
+
+        const maxLimit = Math.min(parseInt(limit, 10) || 50, 500);
+        const docs = await col
+            .find(mongoFilters)
+            .sort(sortOption)
+            .limit(maxLimit)
+            .toArray();
+
+        const resultData = docs || [];
+
+        // 3. Cache result in Redis for 5 seconds
+        setCache(cacheKey, { data: resultData }, 5).catch(() => {});
+
+        return {
+            source: 'mongodb_primary',
+            data: resultData,
+            count: resultData.length,
+            error: null
+        };
+    } catch (mongoErr) {
+        console.error(`[MongoDB Query Error] Table '${tableName}':`, mongoErr.message);
+        throw new Error(`MongoDB query failed: ${mongoErr.message}`, { cause: mongoErr });
     }
 }
 
@@ -115,34 +117,14 @@ export async function insertAndSync(tableName, record) {
         throw new Error('Invalid record payload.');
     }
 
-    let localRecord = null;
-    let pgSuccess = false;
+    const savedRecord = await syncRecordToMongo(tableName, record);
 
-    try {
-        const keys = Object.keys(record);
-        if (keys.length === 0) throw new Error('Record has no keys.');
-
-        const columns = keys.map(k => `"${k}"`).join(', ');
-        const placeholders = keys.map((_, i) => `$${i + 1}`).join(', ');
-        const values = keys.map(k => record[k]);
-
-        const insertSql = `INSERT INTO "${tableName}" (${columns}) VALUES (${placeholders}) RETURNING *`;
-        const res = await query(insertSql, values);
-        localRecord = res.rows[0];
-        pgSuccess = true;
-    } catch (pgErr) {
-        console.warn(`[Local PG Insert Warning] PostgreSQL insert failed for '${tableName}':`, pgErr.message);
-    }
-
-    const payloadToSync = localRecord || record;
-
-    syncRecordToMongo(tableName, payloadToSync).catch(err => {
-        console.warn(`[Background Sync Warning] Failed to sync new record to MongoDB (${tableName}):`, err.message);
-    });
+    // Invalidate Redis cache for this table
+    invalidateCachePattern(`cache:table:${tableName}`).catch(() => {});
 
     return {
-        source: pgSuccess ? 'local_postgresql_inserted' : 'mongodb_fallback_inserted',
-        record: payloadToSync,
+        source: 'mongodb_primary_inserted',
+        record: savedRecord,
         syncedToMongo: true
     };
 }
@@ -150,6 +132,7 @@ export async function insertAndSync(tableName, record) {
 export async function syncRecordToMongo(tableName, record) {
     try {
         const col = await getCollection(tableName);
+        if (!col) return record;
         const recordCopy = { ...record };
 
         if (recordCopy.recorded_at && typeof recordCopy.recorded_at === 'string') {
@@ -236,46 +219,31 @@ export async function syncRecordToMongo(tableName, record) {
             }
         }
 
-        console.log(`🍃 [MongoDB Sync Success] Record synced to MongoDB (${tableName})`);
-        return true;
+        console.log(`🍃 [MongoDB Primary Insert] Record saved to MongoDB (${tableName})`);
+        return recordCopy;
     } catch (err) {
-        console.warn(`🍃 [MongoDB Sync Warning] Table ${tableName}:`, err.message);
+        console.warn(`🍃 [MongoDB Insert Warning] Table ${tableName}:`, err.message);
         throw err;
     }
 }
 
 export async function getSystemHealth() {
-    let pgStatus = 'disconnected';
-    let pgDetails = null;
-
-    try {
-        const pgRes = await query('SELECT version(), current_database(), current_user');
-        pgStatus = 'connected';
-        pgDetails = {
-            database: pgRes.rows[0].current_database,
-            user: pgRes.rows[0].current_user,
-            version: pgRes.rows[0].version
-        };
-    } catch (err) {
-        pgStatus = 'error';
-        pgDetails = { error: err.message };
-    }
-
     const mongoHealth = await checkMongoHealth();
+    const redisHealth = await checkRedisHealth();
 
     return {
         timestamp: new Date().toISOString(),
         primary_storage: {
-            engine: 'PostgreSQL Local',
-            status: pgStatus,
-            details: pgDetails
-        },
-        secondary_storage: {
-            engine: 'MongoDB',
+            engine: 'MongoDB Database',
             status: mongoHealth.status,
             database: mongoHealth.database,
             details: mongoHealth
         },
-        architecture: 'Local PostgreSQL First -> MongoDB Document Sync & Fallback'
+        fast_cache: {
+            engine: redisHealth.engine || 'Redis Fast Cache',
+            status: redisHealth.status,
+            ping: redisHealth.ping || redisHealth.message || 'ok'
+        },
+        architecture: 'MongoDB Primary Document Database -> Redis Fast Caching Layer'
     };
 }

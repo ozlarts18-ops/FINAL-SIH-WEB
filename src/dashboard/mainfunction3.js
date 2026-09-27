@@ -10,7 +10,32 @@ import {
 } from '../api/dataService';
 import { generateExecutiveReport } from '../utils/reportGenerator';
 
-Chart.register(...registerables);
+const emptyDataPlugin = {
+    id: 'emptyDataPlugin',
+    afterDraw(chart) {
+        const hasData = chart.data.datasets && chart.data.datasets.some(d => d.data && d.data.length > 0 && d.data.some(v => v !== null && v !== undefined));
+        if (!hasData) {
+            const { ctx, width, height } = chart;
+            ctx.save();
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.font = '600 14px "Inter", "Segoe UI", sans-serif';
+            ctx.fillStyle = '#94a3b8';
+            const isHi = (localStorage.getItem('envirox_language') || 'en') === 'hi';
+            ctx.fillText(isHi ? 'कोई डेटा उपलब्ध नहीं है' : 'NO DATA AVAILABLE', width / 2, height / 2);
+            ctx.restore();
+        }
+    }
+};
+
+const safeFormatTime = (ts) => {
+    if (!ts) return '';
+    const d = new Date(ts);
+    if (isNaN(d.getTime())) return String(ts);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+};
+
+Chart.register(emptyDataPlugin, ...registerables);
 
 export let ESP32_STREAM_URL = '/api/camera/stream';
 
@@ -28,37 +53,12 @@ export let plantEvents = [
         title: 'GROWTH STAGE ADVANCED',
         level: 'positive',
         details: ['Stage: Seedling → Vegetative', 'Leaf count: +4']
-    },
-    {
-        time: '11:00 AM',
-        icon: '',
-        title: 'NUTRIENT LEVELS NORMAL',
-        level: 'low',
-        details: ['N-P-K: Within normal range', 'Action required: None']
-    },
-    {
-        time: '01:20 PM',
-        icon: '',
-        title: 'RISING SOIL TEMPERATURE',
-        level: 'medium',
-        details: ['Soil temp: 32°C', 'Previous: 27°C']
-    },
-    {
-        time: '05:20 PM',
-        icon: '',
-        title: 'SOIL TEMPERATURE SPIKE',
-        level: 'high',
-        details: ['Soil temp: 34°C', 'Safe range: Exceeded']
     }
 ];
 
 export let plantRecommendations = [
     'Soil moisture is trending downward — consider increasing irrigation frequency by 10%.',
-    'Plant health score is stable and improving over the monitoring period.',
-    'Soil temperature spikes correlate with early-afternoon sun exposure.',
-    'Additional inspection of the affected crop zone is recommended.',
-    'Nutrient levels remain normal; next fertilizer cycle can be delayed by 3-4 days.',
-    'Disease risk has stayed low compared with the previous monitoring period.'
+    'Plant health score is stable and improving over the monitoring period.'
 ];
 
 export const readImageFile = (file, onLoad) => {
@@ -68,129 +68,15 @@ export const readImageFile = (file, onLoad) => {
     reader.readAsDataURL(file);
 };
 
-let soilMoistureData = {
-    daily: {
-        labels: ['8 AM', '10 AM', '12 PM', '2 PM', '4 PM', '6 PM', '8 PM'],
-        values: [65, 62, 58, 54, 50, 48, 46]
-    },
-    weekly: {
-        labels: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
-        values: [60, 58, 55, 57, 53, 50, 52]
-    },
-    monthly: {
-        labels: ['Week 1', 'Week 2', 'Week 3', 'Week 4'],
-        values: [58, 55, 53, 50]
-    }
-};
-
-let soilTemperatureData = {
-    daily: {
-        labels: ['8 AM', '10 AM', '12 PM', '2 PM', '4 PM', '6 PM', '8 PM'],
-        values: [24, 26, 29, 32, 34, 30, 27]
-    },
-    weekly: {
-        labels: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
-        values: [27, 28, 29, 27, 26, 28, 27]
-    },
-    monthly: {
-        labels: ['Week 1', 'Week 2', 'Week 3', 'Week 4'],
-        values: [28, 29, 27, 26]
-    }
-};
-
-const soilTemperatureColors = [
-    'rgba(255, 99, 132, 0.6)',
-    'rgba(255, 159, 64, 0.6)',
-    'rgba(255, 205, 86, 0.6)',
-    'rgba(75, 192, 192, 0.6)',
-    'rgba(54, 162, 235, 0.6)',
-    'rgba(153, 102, 255, 0.6)',
-    'rgba(201, 203, 207, 0.6)'
-];
-
-let plantHealthScoreData = {
-    daily: {
-        labels: ['8 AM', '10 AM', '12 PM', '2 PM', '4 PM', '6 PM', '8 PM'],
-        values: [86, 87, 88, 89, 90, 90, 91]
-    },
-    weekly: {
-        labels: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
-        values: [85, 86, 88, 89, 90, 91, 92]
-    },
-    monthly: {
-        labels: ['Week 1', 'Week 2', 'Week 3', 'Week 4'],
-        values: [86, 88, 90, 91]
-    }
-};
-
-let aiDetectionConfidenceData = {
-    daily: {
-        labels: ['8 AM', '10 AM', '12 PM', '2 PM', '4 PM', '6 PM', '8 PM'],
-        values: [92, 94, 95, 97, 96, 95, 93]
-    },
-    weekly: {
-        labels: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
-        values: [91, 93, 95, 96, 95, 94, 97]
-    },
-    monthly: {
-        labels: ['Week 1', 'Week 2', 'Week 3', 'Week 4'],
-        values: [93, 95, 96, 95]
-    }
-};
-
-let irrigationActivityData = {
-    daily: {
-        labels: ['8 AM', '10 AM', '12 PM', '2 PM', '4 PM', '6 PM', '8 PM'],
-        values: [0, 1, 1, 0, 1, 0, 0]
-    },
-    weekly: {
-        labels: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
-        values: [2, 3, 2, 4, 3, 2, 1]
-    },
-    monthly: {
-        labels: ['Week 1', 'Week 2', 'Week 3', 'Week 4'],
-        values: [10, 12, 9, 11]
-    }
-};
-
-let cropHealthData = {
-    daily: {
-        labels: ['Healthy', 'At Risk', 'Infected'],
-        values: [78, 16, 6]
-    },
-    weekly: {
-        labels: ['Healthy', 'At Risk', 'Infected'],
-        values: [75, 18, 7]
-    },
-    monthly: {
-        labels: ['Healthy', 'At Risk', 'Infected'],
-        values: [76, 17, 7]
-    }
-};
-
-const cropHealthColors = [
-    'rgba(75, 192, 192, 0.7)',
-    'rgba(255, 205, 86, 0.7)',
-    'rgba(255, 99, 132, 0.7)'
-];
-
-let lastUpdatedData = {
-    daily: {
-        labels: ['8 AM', '10 AM', '12 PM', '2 PM', '4 PM', '6 PM', '8 PM'],
-        values: [1, 1, 1, 1, 1, 1, 1]
-    },
-    weekly: {
-        labels: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
-        values: [7, 7, 7, 7, 7, 7, 7]
-    },
-    monthly: {
-        labels: ['Week 1', 'Week 2', 'Week 3', 'Week 4'],
-        values: [49, 49, 49, 49]
-    }
-};
+let soilMoistureData = { daily: { labels: [], values: [] }, weekly: { labels: [], values: [] }, monthly: { labels: [], values: [] } };
+let plantHealthScoreData = { daily: { labels: [], values: [] }, weekly: { labels: [], values: [] }, monthly: { labels: [], values: [] } };
+let aiDetectionConfidenceData = { daily: { labels: [], values: [] }, weekly: { labels: [], values: [] }, monthly: { labels: [], values: [] } };
+let irrigationActivityData = { daily: { labels: [], values: [] }, weekly: { labels: [], values: [] }, monthly: { labels: [], values: [] } };
+let cropHealthData = { daily: { labels: ['Healthy', 'At Risk', 'Infected'], values: [78, 16, 6] }, weekly: { labels: ['Healthy', 'At Risk', 'Infected'], values: [75, 18, 7] }, monthly: { labels: ['Healthy', 'At Risk', 'Infected'], values: [76, 17, 7] } };
+const cropHealthColors = ['rgba(75, 192, 192, 0.7)', 'rgba(255, 205, 86, 0.7)', 'rgba(255, 99, 132, 0.7)'];
+let lastUpdatedData = { daily: { labels: [], values: [] }, weekly: { labels: [], values: [] }, monthly: { labels: [], values: [] } };
 
 let soilMoistureChart = null;
-let soilTemperatureChart = null;
 let plantHealthScoreChart = null;
 let aiDetectionConfidenceChart = null;
 let irrigationActivityChart = null;
@@ -213,56 +99,97 @@ export const syncPlantDataFromSupabase = async () => {
         const [growthRes, diseaseRes, soilRes, sensorRes, diagRes, eventsRes, recsRes] = await Promise.allSettled([
             fetchPlantGrowthLogs(50),
             fetchDiseaseLogs(50),
-            fetchSoilMoistureLogs(10),
+            fetchSoilMoistureLogs(50),
             fetchLatestSensorData(),
             fetchAgriculturalDiagnosis(),
             fetchSystemEvents('plant_health', 5),
             fetchRecommendations('plant_health', 6)
         ]);
 
+        const getDocTime = (d) => d?.recorded_at || d?.detected_at || d?.event_time || d?.created_at || d?.last_synced_at || d?.updated_at;
+        const formatTime = (ts) => {
+            if (!ts) return null;
+            const d = new Date(ts);
+            return isNaN(d.getTime()) ? null : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        };
+
         if (growthRes.status === 'fulfilled' && growthRes.value.data?.length > 0) {
-            const data = growthRes.value.data;
-            const labels = data.map(d => new Date(d.recorded_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
-            plantHealthScoreData.daily = {
-                labels,
-                values: data.map(d => Number(d.health_index ?? 85))
-            };
+            const rawData = growthRes.value.data.slice().reverse();
+            const data = rawData.filter(d => d && getDocTime(d));
+            const labels = data.map((d, i) => formatTime(getDocTime(d)) || `Log #${i + 1}`);
+            const vals = data.map(d => Number(d.health_index ?? 85));
+            if (labels.length > 0) {
+                plantHealthScoreData.daily = { labels, values: vals };
+                plantHealthScoreData.weekly = { labels: labels.slice(-7), values: vals.slice(-7) };
+                plantHealthScoreData.monthly = { labels: labels.slice(-30), values: vals.slice(-30) };
+
+                let healthy = 0, atRisk = 0, infected = 0;
+                data.forEach(d => {
+                    const st = (d.crop_health_status || d.disease_risk || '').toUpperCase();
+                    if (st.includes('HEALTHY') || st === 'LOW' || st === 'GOOD') healthy++;
+                    else if (st.includes('RISK') || st === 'MEDIUM' || st === 'MODERATE') atRisk++;
+                    else infected++;
+                });
+                if (healthy + atRisk + infected > 0) {
+                    cropHealthData.daily = { labels: ['Healthy', 'At Risk', 'Infected'], values: [healthy, atRisk, infected] };
+                    cropHealthData.weekly = { labels: ['Healthy', 'At Risk', 'Infected'], values: [healthy, atRisk, infected] };
+                    cropHealthData.monthly = { labels: ['Healthy', 'At Risk', 'Infected'], values: [healthy, atRisk, infected] };
+                }
+            }
         }
 
         if (diseaseRes.status === 'fulfilled' && diseaseRes.value.data?.length > 0) {
-            const data = diseaseRes.value.data;
-            const labels = data.map(d => new Date(d.detected_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
-            aiDetectionConfidenceData.daily = {
-                labels,
-                values: data.map(d => Number(d.confidence_score ?? 95))
-            };
+            const rawData = diseaseRes.value.data.slice().reverse();
+            const data = rawData.filter(d => d && getDocTime(d));
+            const labels = data.map((d, i) => formatTime(getDocTime(d)) || `Log #${i + 1}`);
+            const vals = data.map(d => Number(d.confidence_score ?? 95));
+            if (labels.length > 0) {
+                aiDetectionConfidenceData.daily = { labels, values: vals };
+                aiDetectionConfidenceData.weekly = { labels: labels.slice(-7), values: vals.slice(-7) };
+                aiDetectionConfidenceData.monthly = { labels: labels.slice(-30), values: vals.slice(-30) };
+            }
         }
 
         if (soilRes.status === 'fulfilled' && soilRes.value.data?.length > 0) {
-            const sData = soilRes.value.data;
-            const labels = sData.map(d => new Date(d.recorded_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
-            soilMoistureData.daily = {
-                labels,
-                values: sData.map(d => Number(d.moisture_percentage ?? 55))
-            };
-            soilTemperatureData.daily = {
-                labels,
-                values: sData.map(d => Number(d.soil_temperature_celsius ?? 26))
-            };
+            const rawData = soilRes.value.data.slice().reverse();
+            const sData = rawData.filter(d => d && getDocTime(d));
+            const labels = sData.map((d, i) => formatTime(getDocTime(d)) || `Log #${i + 1}`);
+            const mVals = sData.map(d => Number(d.moisture_percentage ?? 55));
+            const tVals = sData.map(d => Number(d.soil_temperature_celsius ?? 26));
+            const pumpVals = sData.map(d => (d.relay_pump_active ? 100 : (Number(d.moisture_percentage) < 40 ? 60 : 0)));
+            const freqVals = sData.map((d, i) => Math.min(60, 2 + (i % 3)));
+
+            if (labels.length > 0) {
+                soilMoistureData.daily = { labels, values: mVals };
+                soilMoistureData.weekly = { labels: labels.slice(-7), values: mVals.slice(-7) };
+                soilMoistureData.monthly = { labels: labels.slice(-30), values: mVals.slice(-30) };
+
+                soilTemperatureData.daily = { labels, values: tVals };
+                soilTemperatureData.weekly = { labels: labels.slice(-7), values: tVals.slice(-7) };
+                soilTemperatureData.monthly = { labels: labels.slice(-30), values: tVals.slice(-30) };
+
+                irrigationActivityData.daily = { labels, values: pumpVals };
+                irrigationActivityData.weekly = { labels: labels.slice(-7), values: pumpVals.slice(-7) };
+                irrigationActivityData.monthly = { labels: labels.slice(-30), values: pumpVals.slice(-30) };
+
+                lastUpdatedData.daily = { labels, values: freqVals };
+                lastUpdatedData.weekly = { labels: labels.slice(-7), values: freqVals.slice(-7) };
+                lastUpdatedData.monthly = { labels: labels.slice(-30), values: freqVals.slice(-30) };
+            }
         }
 
         if (eventsRes.status === 'fulfilled' && eventsRes.value.data?.length > 0) {
             plantEvents = eventsRes.value.data.map(ev => ({
-                time: new Date(ev.event_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                time: formatTime(getDocTime(ev)) || '08:30 AM',
                 icon: '',
-                title: ev.title,
+                title: ev.title || 'PLANT EVENT',
                 level: ev.event_level || 'low',
                 details: Array.isArray(ev.details) ? ev.details : []
             }));
         }
 
         if (recsRes.status === 'fulfilled' && recsRes.value.data?.length > 0) {
-            plantRecommendations = recsRes.value.data.map(r => r.recommendation_text);
+            plantRecommendations = recsRes.value.data.map(r => r.recommendation_text || r);
         }
 
         const latestGrowth = growthRes.status === 'fulfilled' && growthRes.value.data?.length > 0 ? growthRes.value.data[growthRes.value.data.length - 1] : null;
@@ -294,7 +221,8 @@ export const updatePlantOverviewDOM = (latestGrowth, latestSoil, liveSensor, liv
         setElem('growthStage', scoreStr);
         setElem('diseaseRisk', latestGrowth.disease_risk || 'LOW');
         if (latestGrowth.recorded_at) {
-            setElem('lastUpdated', new Date(latestGrowth.recorded_at).toLocaleDateString());
+            const formattedDate = safeFormatTime(latestGrowth.recorded_at);
+            if (formattedDate) setElem('lastUpdated', formattedDate);
         }
     }
 
@@ -363,7 +291,6 @@ export const initCharts = async () => {
 };
 
 const renderCharts = (filter = 'daily') => {
-    destroyCharts();
 
     const soilMoistureEl = document.getElementById('SoilMoistureTrend') || document.getElementById('SoilMoisture');
     if (soilMoistureEl) {
@@ -394,35 +321,6 @@ const renderCharts = (filter = 'daily') => {
                 scales: {
                     x: { title: { display: true, text: 'Time' } },
                     y: { beginAtZero: true, title: { display: true, text: 'Moisture (%)' } }
-                }
-            }
-        });
-    }
-
-    const soilTemperatureEl = document.getElementById('SoilTemperature') || document.getElementById('SoilTemperatureTrend');
-    if (soilTemperatureEl) {
-        safeDestroy(soilTemperatureEl);
-        soilTemperatureChart = new Chart(soilTemperatureEl, {
-            type: 'bar',
-            data: {
-                labels: soilTemperatureData[filter].labels,
-                datasets: [{
-                    label: 'Soil Temperature (°C)',
-                    data: soilTemperatureData[filter].values,
-                    backgroundColor: soilTemperatureColors.slice(0, soilTemperatureData[filter].values.length),
-                    borderWidth: 1
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    title: { display: true, text: 'Soil Temperature Trend' },
-                    legend: { display: true }
-                },
-                scales: {
-                    x: { title: { display: true, text: 'Time' } },
-                    y: { beginAtZero: true, title: { display: true, text: 'Temperature (°C)' } }
                 }
             }
         });
@@ -589,7 +487,6 @@ export const destroyCharts = () => {
         livePollingInterval = null;
     }
     if (soilMoistureChart) { soilMoistureChart.destroy(); soilMoistureChart = null; }
-    if (soilTemperatureChart) { soilTemperatureChart.destroy(); soilTemperatureChart = null; }
     if (plantHealthScoreChart) { plantHealthScoreChart.destroy(); plantHealthScoreChart = null; }
     if (aiDetectionConfidenceChart) { aiDetectionConfidenceChart.destroy(); aiDetectionConfidenceChart = null; }
     if (irrigationActivityChart) { irrigationActivityChart.destroy(); irrigationActivityChart = null; }
@@ -601,18 +498,12 @@ export const downloadReport = (type) => {
     const cropHealth = document.getElementById('cropHealth')?.innerText || 'Healthy';
     const plantType = document.getElementById('plantType')?.innerText || 'Tomato (Solanum lycopersicum)';
     const soilMoisture = document.getElementById('soilMoisture')?.innerText || '68%';
-    const soilTemp = document.getElementById('soilTemp')?.innerText || '26.5';
     const healthScore = document.getElementById('plantHealthScore')?.innerText || document.getElementById('growthStage')?.innerText || '88/100';
     const diseaseRisk = document.getElementById('diseaseRisk')?.innerText || 'LOW';
     const nutrientStatus = document.getElementById('nutrientStatus')?.innerText || 'Balanced';
     const lastUpdated = document.getElementById('lastUpdated')?.innerText || 'Just now';
 
-    const curTemp = document.getElementById('ct1')?.innerText || '27.5';
-    const avgTemp = document.getElementById('ct2')?.innerText || '26.8';
-    const minTemp = document.getElementById('ct3')?.innerText || '22.0';
-    const maxTemp = document.getElementById('ct4')?.innerText || '31.0';
-
-    const curMoist = document.getElementById('ht1')?.innerText || '68.0';
+    const _curMoist = document.getElementById('ht1')?.innerText || '68.0';
     const avgMoist = document.getElementById('ht2')?.innerText || '66.5';
     const minMoist = document.getElementById('ht3')?.innerText || '55.0';
     const maxMoist = document.getElementById('ht4')?.innerText || '75.0';
@@ -627,7 +518,6 @@ export const downloadReport = (type) => {
             { label: 'Crop Health Status', value: cropHealth, variant: 'highlight', status: cropHealth, statusLevel: cropHealth.toLowerCase().includes('healthy') ? 'optimal' : 'warning' },
             { label: 'Crop Cultivar / Type', value: plantType, subtext: 'Target Monitored Species' },
             { label: 'Root Zone Soil Moisture', value: soilMoisture, subtext: `Daily Avg: ${avgMoist}% (Min ${minMoist}%, Max ${maxMoist}%)` },
-            { label: 'Soil Temperature', value: soilTemp, unit: '°C', subtext: `Daily Avg: ${avgTemp}°C (Min ${minTemp}°C, Max ${maxTemp}°C)` },
             { label: 'Vegetative Health Score', value: `${healthScore}/100`, subtext: 'Composite AI Chlorophyll & Growth Index' },
             { label: 'Pathology Disease Risk', value: diseaseRisk, subtext: 'MobileNetV3 Neural Inference Risk Level' },
             { label: 'Macro/Micro Nutrients', value: nutrientStatus, subtext: 'N-P-K Visual Matrix Assessment' },
@@ -635,7 +525,6 @@ export const downloadReport = (type) => {
         ],
         chartConfigs: [
             { canvasId: 'SoilMoistureTrend', title: 'Soil Moisture Dynamic Progression (%)', description: 'Continuous volumetric root zone moisture curve' },
-            { canvasId: 'SoilTemperature', title: 'Soil & Root Zone Temperature (°C)', description: 'Thermal sensor telemetry for rhizosphere health' },
             { canvasId: 'PlantHealthScore', title: 'Vegetative Vigor & Health Index Score (0-100)', description: 'Composite plant vitality index' },
             { canvasId: 'AIDetectionConfidence', title: 'AI Pathology Inference Confidence (%)', description: 'Deep learning diagnostic certainty tracking' },
             { canvasId: 'IrrigationActivity', title: 'Automated Drip Irrigation Cycling', description: 'Precision solenoid valve actuation history' },
@@ -643,7 +532,6 @@ export const downloadReport = (type) => {
         ],
         telemetryRows: [
             { parameter: 'Volumetric Soil Moisture (Capacitive V1.2)', recordedValue: soilMoisture, benchmark: '60.0 - 75.0 %', status: 'Optimal', notes: 'Adequate hydration; prevents wilting and waterlogging' },
-            { parameter: 'Rhizosphere Soil Temperature (DS18B20)', recordedValue: `${soilTemp} °C`, benchmark: '22.0 - 28.0 °C', status: 'Optimal', notes: `Daily min: ${minTemp}°C, max: ${maxTemp}°C` },
             { parameter: 'Pathology Risk & Severity Index', recordedValue: diseaseRisk, benchmark: 'LOW / NONE', status: diseaseRisk.toLowerCase() === 'low' ? 'Optimal' : 'Warning', notes: 'Neural vision scan shows healthy canopy architecture' },
             { parameter: 'Composite Growth & Vigor Score', recordedValue: `${healthScore} / 100`, benchmark: '> 80 / 100', status: 'Optimal', notes: 'Normal internode elongation and leaf expansion' },
             { parameter: 'Nutrient Deficiency Profile', recordedValue: nutrientStatus, benchmark: 'Balanced N-P-K', status: 'Optimal', notes: 'No acute nitrogen, phosphorus, or potassium chlorosis' }

@@ -8,7 +8,26 @@ import {
 } from '../api/dataService';
 import { generateExecutiveReport } from '../utils/reportGenerator';
 
-Chart.register(...registerables);
+const emptyStatePlugin = {
+    id: 'emptyState',
+    afterDraw(chart) {
+        const { datasets } = chart.data;
+        const hasData = datasets && datasets.some(ds => ds.data && ds.data.length > 0 && ds.data.some(v => v !== null && v !== undefined && !isNaN(v)));
+        if (!hasData) {
+            const { ctx, width, height } = chart;
+            ctx.save();
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = '#64748b';
+            ctx.font = '600 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+            const isHi = (localStorage.getItem('envirox_language') || 'en') === 'hi';
+            ctx.fillText(isHi ? 'कोई डेटा उपलब्ध नहीं है' : 'NO DATA AVAILABLE', width / 2, height / 2);
+            ctx.restore();
+        }
+    }
+};
+
+Chart.register(...registerables, emptyStatePlugin);
 
 export let waterEvents = [
     {
@@ -117,21 +136,6 @@ let waterQualityScoreData = {
     }
 };
 
-let waterTempData = {
-    daily: {
-        labels: ['8 AM', '10 AM', '12 PM', '2 PM', '4 PM', '6 PM', '8 PM'],
-        values: [22.0, 23.5, 25.5, 27.5, 26.8, 24.5, 23.0]
-    },
-    weekly: {
-        labels: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
-        values: [23.5, 24.0, 25.2, 26.0, 25.5, 24.8, 24.5]
-    },
-    monthly: {
-        labels: ['Week 1', 'Week 2', 'Week 3', 'Week 4'],
-        values: [23.0, 24.5, 25.8, 25.0]
-    }
-};
-
 let waterTankData = {
     daily: {
         labels: ['8 AM', '10 AM', '12 PM', '2 PM', '4 PM', '6 PM', '8 PM'],
@@ -166,7 +170,6 @@ let phChart = null;
 let tdsChart = null;
 let turbidityChart = null;
 let waterQualityScoreChart = null;
-let waterTempChart = null;
 let waterTankChart = null;
 let pumpActivityChart = null;
 let currentFilter = 'daily';
@@ -179,6 +182,12 @@ const safeDestroy = (canvasEl) => {
     }
 };
 
+const safeFormatTime = (ts) => {
+    if (!ts) return null;
+    const d = new Date(ts);
+    return isNaN(d.getTime()) ? null : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+};
+
 export const syncWaterDataFromSupabase = async () => {
     try {
         const [waterRes, _soilRes, _lightRes, eventsRes, recsRes] = await Promise.allSettled([
@@ -189,45 +198,66 @@ export const syncWaterDataFromSupabase = async () => {
             fetchRecommendations('water_quality', 6)
         ]);
 
+        const getDocTime = (d) => d?.recorded_at || d?.detected_at || d?.event_time || d?.created_at || d?.last_synced_at || d?.updated_at;
+
         if (waterRes.status === 'fulfilled' && waterRes.value.data?.length > 0) {
-            const data = waterRes.value.data;
-            console.log(`[Water Quality Data] Loaded ${data.length} records from: ${waterRes.value.source}`);
-            const labels = data.map(d => new Date(d.recorded_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+            const rawData = waterRes.value.data.slice().reverse();
+            console.log(`[Water Quality Data] Loaded ${rawData.length} records from: ${waterRes.value.source}`);
+            const validRecords = rawData.filter(d => d && getDocTime(d));
+            const labels = validRecords.map((d, i) => safeFormatTime(getDocTime(d)) || `Log #${i + 1}`);
 
-            phData.daily = { labels, values: data.map(d => Number(d.current_ph ?? 7.0)) };
-            tdsData.daily = { labels, values: data.map(d => Number(d.tds_ppm ?? 650)) };
-            turbidityData.daily = { labels, values: data.map(d => Number(d.turbidity_ntu ?? 2.5)) };
-            waterTempData.daily = { labels, values: data.map(d => Number(d.current_water_temp ?? 24.5)) };
-            waterTankData.daily = { labels, values: data.map(d => Number(d.water_tank_level_percent ?? 78)) };
-            pumpActivityData.daily = { labels, values: data.map(d => (d.pump_status === 'ON' ? 25 : 0)) };
-            waterQualityScoreData.daily = {
-                labels,
-                values: data.map(d => {
-                    const ph = Number(d.current_ph ?? 7);
-                    const tds = Number(d.tds_ppm ?? 600);
-                    let score = 100;
-                    if (ph < 6.5 || ph > 7.5) score -= 10;
-                    if (tds > 800) score -= 15;
-                    return Math.max(50, score);
-                })
-            };
+            const phVals = validRecords.map(d => Number(d.current_ph ?? d.ph ?? d.ph_level ?? 7.0));
+            const tdsVals = validRecords.map(d => Number(d.tds_ppm ?? d.tds ?? d.current_tds ?? 650));
+            const turbVals = validRecords.map(d => Number(d.turbidity_ntu ?? d.turbidity ?? d.turb ?? d.current_turbidity ?? 2.5));
+            const wTempVals = validRecords.map(d => Number(d.current_water_temp ?? 24.5));
+            const tankVals = validRecords.map(d => Number(d.water_tank_level_percent ?? 78));
+            const pumpVals = validRecords.map(d => (d.pump_status === 'ON' ? 25 : 0));
+            const scoreVals = validRecords.map(d => {
+                const ph = Number(d.current_ph ?? 7);
+                const tds = Number(d.tds_ppm ?? 600);
+                let score = 100;
+                if (ph < 6.5 || ph > 7.5) score -= 10;
+                if (tds > 800) score -= 15;
+                return Math.max(50, score);
+            });
 
-            const latest = data[data.length - 1];
+            if (labels.length > 0) {
+                phData.daily = { labels, values: phVals };
+                tdsData.daily = { labels, values: tdsVals };
+                turbidityData.daily = { labels, values: turbVals };
+                waterTempData.daily = { labels, values: wTempVals };
+                waterTankData.daily = { labels, values: tankVals };
+                pumpActivityData.daily = { labels, values: pumpVals };
+                waterQualityScoreData.daily = { labels, values: scoreVals };
+
+                phData.weekly = { labels: labels.slice(-7), values: phVals.slice(-7) };
+                phData.monthly = { labels: labels.slice(-30), values: phVals.slice(-30) };
+                tdsData.weekly = { labels: labels.slice(-7), values: tdsVals.slice(-7) };
+                tdsData.monthly = { labels: labels.slice(-30), values: tdsVals.slice(-30) };
+                turbidityData.weekly = { labels: labels.slice(-7), values: turbVals.slice(-7) };
+                turbidityData.monthly = { labels: labels.slice(-30), values: turbVals.slice(-30) };
+                waterTempData.weekly = { labels: labels.slice(-7), values: wTempVals.slice(-7) };
+                waterTempData.monthly = { labels: labels.slice(-30), values: wTempVals.slice(-30) };
+                waterTankData.weekly = { labels: labels.slice(-7), values: tankVals.slice(-7) };
+                waterTankData.monthly = { labels: labels.slice(-30), values: tankVals.slice(-30) };
+            }
+
+            const latest = validRecords[validRecords.length - 1] || rawData[rawData.length - 1];
             updateWaterOverviewDOM(latest);
         }
 
         if (eventsRes.status === 'fulfilled' && eventsRes.value.data?.length > 0) {
             waterEvents = eventsRes.value.data.map(ev => ({
-                time: new Date(ev.event_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                time: safeFormatTime(getDocTime(ev)) || '08:30 AM',
                 icon: '',
-                title: ev.title,
+                title: ev.title || 'WATER EVENT',
                 level: ev.event_level || 'low',
                 details: Array.isArray(ev.details) ? ev.details : []
             }));
         }
 
         if (recsRes.status === 'fulfilled' && recsRes.value.data?.length > 0) {
-            waterRecommendations = recsRes.value.data.map(r => r.recommendation_text);
+            waterRecommendations = recsRes.value.data.map(r => r.recommendation_text || r);
         }
     } catch (err) {
         console.warn('Water quality data loading fallback:', err.message || err);
@@ -241,27 +271,26 @@ const updateWaterOverviewDOM = (latest) => {
         if (el && val !== undefined && val !== null) el.innerText = String(val);
     };
 
-    setElem('st', latest.water_status || 'Optimal');
-    setElem('phl', latest.current_ph || '6.8');
-    setElem('tds', latest.tds_ppm || '650');
-    setElem('wt', latest.turbidity_ntu || '2.5');
-    setElem('tl', `${latest.water_tank_level_percent || 78}%`);
-    setElem('ps', latest.pump_status || 'OFF');
-    setElem('exf', latest.pump_status || 'ON');
-
-    setElem('ct1', latest.current_water_temp || '24.5');
-    setElem('ct2', latest.avg_water_temp || '24.8');
-    setElem('ct3', latest.min_water_temp || '22.0');
-    setElem('ct4', latest.max_water_temp || '27.5');
-
-    setElem('ht1', latest.current_ph || '6.8');
-    setElem('ht2', latest.avg_ph || '7.0');
-    setElem('ht3', latest.min_ph || '6.5');
-    setElem('ht4', latest.max_ph || '7.3');
-
-    setElem('aqs', '92/100');
+    if (latest.water_status) setElem('st', latest.water_status);
+    if (latest.current_ph) setElem('phl', latest.current_ph);
+    if (latest.tds_ppm) setElem('tds', latest.tds_ppm);
+    if (latest.turbidity_ntu) setElem('wt', latest.turbidity_ntu);
+    if (latest.water_tank_level_percent) setElem('tl', `${latest.water_tank_level_percent}%`);
+    if (latest.pump_status) {
+        setElem('ps', latest.pump_status);
+        setElem('exf', latest.pump_status);
+    }
+    if (latest.current_water_temp) setElem('ct1', latest.current_water_temp);
+    if (latest.avg_water_temp) setElem('ct2', latest.avg_water_temp);
+    if (latest.min_water_temp) setElem('ct3', latest.min_water_temp);
+    if (latest.max_water_temp) setElem('ct4', latest.max_water_temp);
+    if (latest.current_ph) setElem('ht1', latest.current_ph);
+    if (latest.avg_ph) setElem('ht2', latest.avg_ph);
+    if (latest.min_ph) setElem('ht3', latest.min_ph);
+    if (latest.max_ph) setElem('ht4', latest.max_ph);
     if (latest.recorded_at) {
-        setElem('lastUpdatedText', new Date(latest.recorded_at).toLocaleString());
+        const safeTs = safeFormatTime(latest.recorded_at);
+        if (safeTs) setElem('lastUpdatedText', safeTs);
     }
 };
 
@@ -271,7 +300,6 @@ export const initCharts = async () => {
 };
 
 const renderCharts = (timeframe = 'daily') => {
-    destroyCharts();
 
     const phEl = document.getElementById('PHTrend');
     if (phEl) {
@@ -401,38 +429,6 @@ const renderCharts = (timeframe = 'daily') => {
         });
     }
 
-    const waterTempEl = document.getElementById('WaterTemperature') || document.getElementById('WaterTankLevel');
-    if (waterTempEl) {
-        safeDestroy(waterTempEl);
-        waterTempChart = new Chart(waterTempEl, {
-            type: 'line',
-            data: {
-                labels: waterTempData[timeframe]?.labels || waterTempData.daily.labels,
-                datasets: [{
-                    label: 'Water Temp (°C)',
-                    data: waterTempData[timeframe]?.values || waterTempData.daily.values,
-                    backgroundColor: 'rgba(153, 102, 255, 0.2)',
-                    borderColor: 'rgb(153, 102, 255)',
-                    borderWidth: 2,
-                    fill: true,
-                    tension: 0.3
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    title: { display: true, text: 'Water Temperature Trend (°C)' },
-                    legend: { display: true }
-                },
-                scales: {
-                    x: { title: { display: true, text: 'Time' } },
-                    y: { beginAtZero: false, title: { display: true, text: '°C' } }
-                }
-            }
-        });
-    }
-
     const tankEl = document.getElementById('WaterTankCapacity') || document.getElementById('PumpActivity');
     if (tankEl) {
         safeDestroy(tankEl);
@@ -504,7 +500,6 @@ export const destroyCharts = () => {
     if (tdsChart) { tdsChart.destroy(); tdsChart = null; }
     if (turbidityChart) { turbidityChart.destroy(); turbidityChart = null; }
     if (waterQualityScoreChart) { waterQualityScoreChart.destroy(); waterQualityScoreChart = null; }
-    if (waterTempChart) { waterTempChart.destroy(); waterTempChart = null; }
     if (waterTankChart) { waterTankChart.destroy(); waterTankChart = null; }
     if (pumpActivityChart) { pumpActivityChart.destroy(); pumpActivityChart = null; }
 };
@@ -518,12 +513,17 @@ export const downloadReport = (type) => {
     const pumpStatus = document.getElementById('ps')?.innerText || 'OFF';
     const score = document.getElementById('aqs')?.innerText || '92/100';
 
-    const curTemp = document.getElementById('ct1')?.innerText || '24.5';
-    const avgTemp = document.getElementById('ct2')?.innerText || '24.8';
-    const minTemp = document.getElementById('ct3')?.innerText || '22.0';
-    const maxTemp = document.getElementById('ct4')?.innerText || '27.5';
+    const curTds = document.getElementById('ct1')?.innerText || tds;
+    const avgTds = document.getElementById('ct2')?.innerText || tds;
+    const minTds = document.getElementById('ct3')?.innerText || '380';
+    const maxTds = document.getElementById('ct4')?.innerText || '510';
 
-    const curPh = document.getElementById('ht1')?.innerText || '6.8';
+    const curTurb = document.getElementById('tt1')?.innerText || turbidity;
+    const avgTurb = document.getElementById('tt2')?.innerText || turbidity;
+    const minTurb = document.getElementById('tt3')?.innerText || '1.0';
+    const maxTurb = document.getElementById('tt4')?.innerText || '4.5';
+
+    const curPh = document.getElementById('ht1')?.innerText || ph;
     const avgPh = document.getElementById('ht2')?.innerText || '7.0';
     const minPh = document.getElementById('ht3')?.innerText || '6.5';
     const maxPh = document.getElementById('ht4')?.innerText || '7.3';
@@ -532,31 +532,28 @@ export const downloadReport = (type) => {
         title: 'Water Quality & Irrigation Dynamics Report',
         subtitle: 'Hydro-Chemistry Analytics, Drip Telemetry & Nutrient Solution Quality',
         reportType: type,
-        systemNode: 'EnviroX Hydro Node Beta (Irrigation Reservoir)',
+        systemNode: 'IOTrex Hydro Node (Irrigation Reservoir)',
         alertStatus: statusText,
         kpiMetrics: [
             { label: 'Water System Status', value: statusText, variant: 'highlight', status: statusText, statusLevel: statusText.toLowerCase() === 'optimal' ? 'optimal' : 'warning' },
-            { label: 'pH Balance Index', value: ph, subtext: `Stability Range: ${minPh} - ${maxPh} (Avg: ${avgPh})` },
-            { label: 'Total Dissolved Solids (TDS)', value: tds, unit: 'ppm', subtext: 'Nutrient & Mineral Salinity Concentration' },
-            { label: 'Turbidity (Clarity)', value: turbidity, unit: 'NTU', subtext: 'Suspended Particulate Matter' },
+            { label: 'pH Balance Index', value: curPh, subtext: `Stability Range: ${minPh} - ${maxPh} (Avg: ${avgPh})` },
+            { label: 'Total Dissolved Solids (TDS)', value: `${curTds} ppm`, subtext: `Avg: ${avgTds} ppm (Min: ${minTds}, Max: ${maxTds})` },
+            { label: 'Turbidity (Clarity)', value: `${curTurb} NTU`, subtext: `Avg: ${avgTurb} NTU (Min: ${minTurb}, Max: ${maxTurb})` },
             { label: 'Reservoir Level', value: tankLevel, subtext: 'Continuous Hydrostatic Gauge' },
             { label: 'Irrigation Drip Pump', value: pumpStatus, subtext: 'Active Pressure Flow Actuator' },
-            { label: 'Water Quality Index', value: score, subtext: 'Composite Hydro-Safety Metric' },
-            { label: 'Water Temperature', value: curTemp, unit: '°C', subtext: `Avg: ${avgTemp}°C (Min ${minTemp}°C, Max ${maxTemp}°C)` }
+            { label: 'Water Quality Index', value: score, subtext: 'Composite Hydro-Safety Metric' }
         ],
         chartConfigs: [
             { canvasId: 'PHTrend', title: 'pH Balance & Chemical Stability', description: 'Real-time potentiometric pH sensor telemetry' },
             { canvasId: 'TDSTrend', title: 'Total Dissolved Solids (TDS ppm)', description: 'Electrical conductivity & mineral salinity curve' },
             { canvasId: 'TurbidityTrend', title: 'Water Turbidity & Suspended Solids (NTU)', description: 'Optical nephelometric turbidity index' },
             { canvasId: 'WaterQualityScore', title: 'Composite Water Quality Score (0-100)', description: 'Agronomic irrigation suitability index' },
-            { canvasId: 'WaterTemperature', title: 'Water Temperature Trend (°C)', description: 'Root uptake thermal optimization curve' },
             { canvasId: 'WaterTankCapacity', title: 'Reservoir Storage Capacity (%)', description: 'Continuous volumetric tank monitoring' }
         ],
         telemetryRows: [
-            { parameter: 'Solution pH Level (Analog Probe)', recordedValue: ph, benchmark: '6.5 - 7.5', status: 'Optimal', notes: 'Neutral buffer maintained; optimal root uptake' },
-            { parameter: 'Total Dissolved Solids (TDS)', recordedValue: `${tds} ppm`, benchmark: '500 - 800 ppm', status: 'Optimal', notes: 'Balanced nutrient ionic concentration' },
-            { parameter: 'Water Turbidity (Optical NTU)', recordedValue: `${turbidity} NTU`, benchmark: '< 5.0 NTU', status: 'Optimal', notes: 'Clear water; low risk of emitter clogging' },
-            { parameter: 'Water Temperature (Waterproof DS18B20)', recordedValue: `${curTemp} °C`, benchmark: '20.0 - 26.0 °C', status: 'Optimal', notes: `Daily min: ${minTemp}°C, max: ${maxTemp}°C` },
+            { parameter: 'Solution pH Level (Analog Probe)', recordedValue: curPh, benchmark: '6.5 - 7.5', status: 'Optimal', notes: 'Neutral buffer maintained; optimal root uptake' },
+            { parameter: 'Total Dissolved Solids (TDS)', recordedValue: `${curTds} ppm`, benchmark: '300 - 1000 ppm', status: 'Optimal', notes: `Avg: ${avgTds} ppm` },
+            { parameter: 'Water Turbidity (Optical NTU)', recordedValue: `${curTurb} NTU`, benchmark: '< 5.0 NTU', status: 'Optimal', notes: `Avg: ${avgTurb} NTU` },
             { parameter: 'Main Reservoir Storage Tank', recordedValue: tankLevel, benchmark: '> 30 %', status: 'Normal', notes: 'Adequate reserve for planned fertigation cycles' },
             { parameter: 'Irrigation Pump Relay (12V/220V)', recordedValue: pumpStatus, benchmark: 'Automated Cycle', status: 'Normal', notes: 'Pressure line standby active' }
         ],

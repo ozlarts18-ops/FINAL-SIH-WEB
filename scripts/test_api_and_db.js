@@ -1,9 +1,8 @@
 import { queryTable, insertAndSync, getSystemHealth } from '../server/syncEngine.js';
-import { pool } from '../server/db.js';
 import { closeMongo } from '../server/mongoDb.js';
 
 async function testAll() {
-    console.log('🧪 Testing System Health & PostgreSQL + MongoDB Sync Integration...');
+    console.log('🧪 Testing System Health & MongoDB Primary + Redis Fast Cache Integration...');
 
     try {
         const health = await getSystemHealth();
@@ -27,16 +26,8 @@ async function testAll() {
         const pest = await queryTable('pest_detection_logs', { limit: 5 });
         console.log(`\n🐛 Pest Detection Logs (Source: ${pest.source}): ${pest.count} records retrieved.`);
 
-        console.log('\n📝 Testing Insert to Primary PostgreSQL and Background Sync to MongoDB...');
-        let deviceId = 1;
-        try {
-            const devCheck = await pool.query('SELECT device_id FROM devices LIMIT 1');
-            if (devCheck.rows.length > 0) {
-                deviceId = devCheck.rows[0].device_id;
-            }
-        } catch (e) {
-            console.log('PostgreSQL device check skipped, using fallback device_id = 1');
-        }
+        console.log('\n📝 Testing Insert to Primary MongoDB and Cache Invalidation...');
+        const deviceId = 1;
 
         const testInsert = await insertAndSync('air_quality_logs', {
             device_id: deviceId,
@@ -58,13 +49,12 @@ async function testAll() {
             recorded_at: new Date().toISOString()
         });
 
-        console.log(`✅ Insert successful! Source: ${testInsert.source}, Log ID: ${testInsert.record.log_id || 'N/A'}`);
+        console.log(`✅ Insert successful! Source: ${testInsert.source}, Record:`, testInsert.record);
 
         console.log('\n🎉 ALL TESTS COMPLETED SUCCESSFULLY!');
     } catch (err) {
         console.error('❌ Test failed:', err);
     } finally {
-        try { await pool.end(); } catch (e) {}
         await closeMongo();
     }
 }

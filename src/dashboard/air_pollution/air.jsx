@@ -4,6 +4,7 @@ import Nav from '../../components/Nav';
 import Footer from '../../components/Footer';
 import DashboardSubNav from '../../components/DashboardSubNav';
 import AudioVoiceButton from '../../components/AudioVoiceButton';
+import { useLanguage } from '../../context/LanguageContext';
 import { fetchLatestSensorData, fetchAirQualityLogs } from '../../api/dataService';
 
 import {
@@ -12,26 +13,25 @@ import {
     downloadReport,
     destroyCharts,
     calculateHeatIndex,
-    calculateEvapotranspiration,
-    evaluateWaterloggingRisk,
-    airEvents,
-    airRecommendations
+    calculateEvapotranspiration
 } from '../mainfunction';
 
 import './air.css';
 
 const AirPollutionDashboard = () => {
+    const { language, t } = useLanguage();
     const [alertDismissed, setAlertDismissed] = useState(false);
 
     const [telemetry, setTelemetry] = useState({
         device: 'ESP32-S3-01',
-        isOnline: false,
+        node1Online: false,
         temperature: null,
         humidity: null,
         lux: null,
         gasDetected: null,
         rainDetected: null,
-        buzzer: null
+        growLightState: 'OFF',
+        growLightMode: 'AUTO'
     });
 
     const [stats, setStats] = useState({
@@ -46,30 +46,35 @@ const AirPollutionDashboard = () => {
     const fetchLiveData = async () => {
         try {
             const data = await fetchLatestSensorData();
+            const controlsRes = await fetch('/api/controls').then(r => r.ok ? r.json() : null).catch(() => null);
+            const growLightActuator = controlsRes?.data?.find(a => a.actuator_type === 'grow_lights');
+
             if (data && typeof data === 'object') {
-                let online = false;
-                if (data.timestamp) {
-                    const timeDiff = Date.now() - new Date(data.timestamp).getTime();
-                    online = timeDiff < 30000;
-                } else if (data.status === 'OK') {
-                    online = true;
-                }
+                const node1 = data.node1 || {};
+                const online = Boolean(data.node1 ? data.node1.online : (data.timestamp && Date.now() - new Date(data.timestamp).getTime() < 30000));
+
+                const tempVal = node1.temperature ?? data.temperature ?? null;
+                const humVal = node1.humidity ?? data.humidity ?? null;
+                const luxVal = node1.lux ?? data.lux ?? null;
+                const gasVal = node1.gasDetected ?? data.gasDetected ?? null;
+                const rainVal = node1.rainDetected ?? data.rainDetected ?? null;
 
                 setTelemetry({
-                    device: data.device || 'ESP32-S3-01',
-                    isOnline: online,
-                    temperature: data.temperature !== undefined && data.temperature !== null ? Number(data.temperature).toFixed(1) : null,
-                    humidity: data.humidity !== undefined && data.humidity !== null ? Number(data.humidity).toFixed(1) : null,
-                    lux: data.lux !== undefined && data.lux !== null ? data.lux : null,
-                    gasDetected: data.gasDetected !== undefined && data.gasDetected !== null ? Boolean(data.gasDetected) : null,
-                    rainDetected: data.rainDetected !== undefined && data.rainDetected !== null ? Boolean(data.rainDetected) : null,
-                    buzzer: data.buzzer !== undefined && data.buzzer !== null ? Boolean(data.buzzer) : null
+                    device: 'ESP32-S3-01',
+                    node1Online: online,
+                    temperature: online && tempVal !== null ? Number(tempVal).toFixed(1) : null,
+                    humidity: online && humVal !== null ? Number(humVal).toFixed(1) : null,
+                    lux: online && luxVal !== null ? Number(luxVal).toFixed(2) : null,
+                    gasDetected: online && gasVal !== null ? Boolean(gasVal) : null,
+                    rainDetected: online && rainVal !== null ? Boolean(rainVal) : null,
+                    growLightState: growLightActuator ? growLightActuator.current_state : (data.grow_lights || 'OFF'),
+                    growLightMode: growLightActuator ? (growLightActuator.control_mode === 'AUTOMATIC' ? 'AUTO' : growLightActuator.current_state) : 'AUTO'
                 });
             } else {
-                setTelemetry(prev => ({ ...prev, isOnline: false }));
+                setTelemetry(prev => ({ ...prev, node1Online: false }));
             }
         } catch (_err) {
-            setTelemetry(prev => ({ ...prev, isOnline: false }));
+            setTelemetry(prev => ({ ...prev, node1Online: false }));
         }
     };
 
@@ -103,12 +108,38 @@ const AirPollutionDashboard = () => {
                     maxHum: 'N/A'
                 });
             }
-        } catch (_err) {}};
+        } catch (_err) { }
+    };
+
+    const handleLightControl = async (targetAction) => {
+        try {
+            const res = await fetch('/api/controls', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ actuator_type: 'grow_lights', action: targetAction })
+            });
+            if (res.ok) {
+                const json = await res.json();
+                const updatedState = json.data?.find(a => a.actuator_type === 'grow_lights');
+                if (updatedState) {
+                    setTelemetry(prev => ({
+                        ...prev,
+                        growLightState: updatedState.current_state,
+                        growLightMode: updatedState.control_mode === 'AUTOMATIC' ? 'AUTO' : updatedState.current_state
+                    }));
+                }
+            }
+        } catch (e) {
+            console.warn('Grow light control command error:', e.message);
+        }
+    };
 
     useEffect(() => {
         initCharts();
-        fetchLiveData();
-        fetchHistoricalStats();
+        Promise.resolve().then(() => {
+            fetchLiveData();
+            fetchHistoricalStats();
+        });
 
         const liveInterval = setInterval(() => {
             fetchLiveData();
@@ -125,51 +156,129 @@ const AirPollutionDashboard = () => {
         };
     }, []);
 
-    const heatIndex = (telemetry.temperature !== null && telemetry.humidity !== null)
+    const heatIndex = (telemetry.node1Online && telemetry.temperature !== null && telemetry.humidity !== null)
         ? calculateHeatIndex(Number(telemetry.temperature), Number(telemetry.humidity))
         : null;
 
-    const etData = calculateEvapotranspiration(
-        telemetry.temperature ?? 28,
-        telemetry.humidity ?? 65,
-        telemetry.lux ?? 1500,
-        stats.minTemp !== 'N/A' ? Number(stats.minTemp) : 24,
-        stats.maxTemp !== 'N/A' ? Number(stats.maxTemp) : 34
-    );
+    const hasValidEtData = telemetry.node1Online && telemetry.temperature !== null && telemetry.humidity !== null;
+    const etData = hasValidEtData
+        ? calculateEvapotranspiration(
+            Number(telemetry.temperature),
+            Number(telemetry.humidity),
+            telemetry.lux !== null ? Number(telemetry.lux) : 1500,
+            stats.minTemp !== 'N/A' ? Number(stats.minTemp) : 24,
+            stats.maxTemp !== 'N/A' ? Number(stats.maxTemp) : 34
+        )
+        : null;
 
     const getEnvironmentStatus = () => {
-        if (telemetry.gasDetected) return { label: 'HAZARD: GAS DETECTED', color: '#c0392b' };
-        if (telemetry.rainDetected) return { label: 'RAIN DETECTED', color: '#2980b9' };
+        if (!telemetry.node1Online) return { label: language === 'hi' ? 'नोड 1 ऑफलाइन' : 'NODE 1 OFFLINE', color: '#7f8c8d' };
+        if (telemetry.gasDetected) return { label: language === 'hi' ? 'गंभीर' : 'CRITICAL', color: '#c0392b' };
+        if (telemetry.rainDetected) return { label: language === 'hi' ? 'चेतावनी' : 'WARNING', color: '#e67e22' };
         if (telemetry.temperature !== null && Number(telemetry.temperature) > 35) {
-            return { label: 'HIGH HEAT ADVISORY', color: '#e67e22' };
+            return { label: language === 'hi' ? 'चेतावनी' : 'WARNING', color: '#e67e22' };
         }
-        return { label: 'OPTIMAL', color: '#3f8c20' };
+        if (telemetry.humidity !== null && (Number(telemetry.humidity) < 30 || Number(telemetry.humidity) > 85)) {
+            return { label: language === 'hi' ? 'चेतावनी' : 'WARNING', color: '#e67e22' };
+        }
+        return { label: language === 'hi' ? 'इष्टतम' : 'OPTIMAL', color: '#3f8c20' };
     };
     const envStatus = getEnvironmentStatus();
 
-    const alertSpeechEn = telemetry.gasDetected
-        ? 'Critical Alert: Combustible gas or smoke spike detected by MQ-2 sensor. Immediate ventilation required.'
-        : telemetry.rainDetected
-            ? 'Precipitation Advisory: Rainfall detected. Please monitor soil saturation and adjust greenhouse louvers.'
-            : telemetry.temperature > 35
-                ? `High Heat Warning: Canopy temperature is ${telemetry.temperature} degrees Celsius. Evapotranspiration loss is ${etData.et0} mm per day. Early morning drip irrigation prescribed.`
-                : `System Status Optimal: Temperature is ${telemetry.temperature || 28} degrees, humidity is ${telemetry.humidity || 70} percent, and drought risk is low.`;
+    const alertSpeechEn = !telemetry.node1Online
+        ? 'Node 1 sensor connection lost.'
+        : telemetry.gasDetected
+            ? 'Gas or smoke level is above the configured threshold. Immediate attention required.'
+            : telemetry.rainDetected
+                ? 'Rain detected. Review ventilation and irrigation requirements.'
+                : telemetry.temperature && Number(telemetry.temperature) > 35
+                    ? `High heat condition detected. Current canopy temperature is ${telemetry.temperature} degrees Celsius.`
+                    : `Environment status optimal. Temperature is ${telemetry.temperature || 'N/A'} degrees Celsius, humidity is ${telemetry.humidity || 'N/A'} percent.`;
 
-    const alertSpeechHi = telemetry.gasDetected
-        ? 'गंभीर चेतावनी: गैस या धुआं का स्तर बढ़ गया है। तत्काल निकास पंखे चालू करें।'
-        : telemetry.rainDetected
-            ? 'बारिश की चेतावनी: वर्षा संवेदक सक्रिय है। कृपया जल निकासी की जांच करें।'
-            : telemetry.temperature > 35
-                ? `गर्मी की चेतावनी: तापमान ${telemetry.temperature} डिग्री सेल्सियस है। वाष्पीकरण दर ${etData.et0} मिमी प्रति दिन है। सुबह जल्दी ड्रिप सिंचाई करें।`
-                : `सभी स्थितियां सामान्य हैं। तापमान ${telemetry.temperature || 28} डिग्री और आर्द्रता ${telemetry.humidity || 70} प्रतिशत है।`;
+    const alertSpeechHi = !telemetry.node1Online
+        ? 'नोड 1 सेंसर कनेक्शन टूट गया है।'
+        : telemetry.gasDetected
+            ? 'गैस या धुआं का स्तर सीमा से अधिक है।'
+            : telemetry.rainDetected
+                ? 'बारिश का पता चला है।'
+                : telemetry.temperature && Number(telemetry.temperature) > 35
+                    ? `उच्च तापमान की चेतावनी: ${telemetry.temperature} डिग्री सेल्सियस।`
+                    : `सभी स्थितियां सामान्य हैं। तापमान ${telemetry.temperature || 'N/A'} डिग्री।`;
 
-    const alertSpeechMr = telemetry.gasDetected
-        ? 'गंभीर इशारा: विषारी वायू किंवा धूर वाढला आहे. लगेच एक्झॉस्ट फॅन चालू करा.'
-        : telemetry.rainDetected
-            ? 'पावसाची सूचना: पाऊस सुरू आहे. कृपया पाण्याचा निचरा तपासा.'
-            : telemetry.temperature > 35
-                ? `उष्णतेचा इशारा: तापमान ${telemetry.temperature} अंश सेल्सिअस आहे. बाष्पीभवन ${etData.et0} मिमी/दिवस आहे. सकाळी लवकर पाणी द्या.`
-                : `सर्व स्थिती सामान्य आहे. तापमान ${telemetry.temperature || 28} अंश आणि हवेतील आर्द्रता ${telemetry.humidity || 70} टक्के आहे.`;
+    const alertSpeechMr = !telemetry.node1Online
+        ? 'नोड 1 सेन्सर कनेक्शन तुटले आहे.'
+        : telemetry.gasDetected
+            ? 'गॅस किंवा धूर पातळी जास्त आहे.'
+            : telemetry.rainDetected
+                ? 'पाऊस सुरू आहे.'
+                : telemetry.temperature && Number(telemetry.temperature) > 35
+                    ? `उच्च तापमानाचा इशारा: ${telemetry.temperature} अंश सेल्सिअस.`
+                    : `सर्व स्थिती सामान्य आहे.`;
+
+    const dynamicEvents = !telemetry.node1Online
+        ? [
+            {
+                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                icon: '',
+                title: 'NODE 1 SENSOR CONNECTION LOST',
+                level: 'high',
+                details: ['Node 1 (Atmospheric) is offline or unreachable.', 'Check hardware power and Wi-Fi connection.']
+            }
+        ]
+        : [
+            ...(telemetry.gasDetected ? [{
+                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                icon: '',
+                title: 'GAS / SMOKE LEVEL ABOVE THRESHOLD',
+                level: 'high',
+                details: ['MQ gas sensor threshold exceeded.', 'Inspect growing area immediately.']
+            }] : []),
+            ...(telemetry.rainDetected ? [{
+                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                icon: '',
+                title: 'RAIN DETECTED',
+                level: 'medium',
+                details: ['Rain sensor triggered.', 'Review greenhouse louvers and irrigation.']
+            }] : []),
+            ...(telemetry.lux !== null && Number(telemetry.lux) < 1.0 ? [{
+                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                icon: '',
+                title: 'GROW LIGHT ACTIVATED AUTOMATICALLY',
+                level: 'positive',
+                details: [`Ambient light level is below 1.0 lux (${telemetry.lux} lux).`, 'Grow light activated automatically.']
+            }] : []),
+            {
+                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                icon: '',
+                title: 'NODE 1 TELEMETRY STREAMING',
+                level: 'positive',
+                details: [
+                    `Temperature: ${telemetry.temperature !== null ? telemetry.temperature + ' °C' : 'N/A'}`,
+                    `Humidity: ${telemetry.humidity !== null ? telemetry.humidity + ' %' : 'N/A'}`,
+                    `Light: ${telemetry.lux !== null ? telemetry.lux + ' lux' : 'N/A'}`
+                ]
+            }
+        ];
+
+    const dynamicRecommendations = !telemetry.node1Online
+        ? ['Check Node 1 network/power connection.']
+        : [
+            ...(telemetry.lux !== null && Number(telemetry.lux) < 1.0
+                ? ['Consider maintaining the grow light in AUTO mode while ambient light remains below 1.0 lux.']
+                : ['Ambient light is sufficient. Maintain grow light in AUTO mode for night operation.']),
+            ...(telemetry.temperature !== null && Number(telemetry.temperature) > 35
+                ? ['Increase ventilation if the temperature continues to rise.']
+                : []),
+            ...(telemetry.humidity !== null && (Number(telemetry.humidity) < 30 || Number(telemetry.humidity) > 85)
+                ? ['Humidity condition requires attention. Adjust ventilation and foggers.']
+                : []),
+            ...(telemetry.gasDetected
+                ? ['Inspect the growing area for smoke or gas sources.']
+                : []),
+            ...(telemetry.rainDetected
+                ? ['Review irrigation requirements while rain is detected.']
+                : [])
+        ];
 
     return (
         <div className="air-pollution-page">
@@ -183,12 +292,12 @@ const AirPollutionDashboard = () => {
                 <div className="overview">
 
                     <div className="head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap' }}>
-                        <h1>OVERVIEW</h1>
+                        <h1>{t('dashCommon.overview')}</h1>
                         <AudioVoiceButton
                             text={alertSpeechEn}
                             hindiText={alertSpeechHi}
                             marathiText={alertSpeechMr}
-                            label="Speak Overview"
+                            label={t('dashCommon.speakOverview')}
                         />
                     </div>
 
@@ -212,7 +321,7 @@ const AirPollutionDashboard = () => {
                                 </p>
 
                                 <p className="t1" style={{ marginTop: '8px' }}>
-                                    {telemetry.isOnline ? 'Continuous Monitoring Active' : 'Sensor Offline'}
+                                    {telemetry.node1Online ? 'Continuous Monitoring Active' : 'NODE 1 OFFLINE'}
                                 </p>
 
                             </div>
@@ -225,7 +334,7 @@ const AirPollutionDashboard = () => {
                                     className="unit"
                                     id="heatIndex"
                                 >
-                                    {heatIndex !== null ? heatIndex : 'N/A'}
+                                    {telemetry.node1Online && heatIndex !== null ? heatIndex : 'N/A'}
                                 </p>
 
                                 <p className="t1">
@@ -242,7 +351,7 @@ const AirPollutionDashboard = () => {
                                     className="unit"
                                     id="lux"
                                 >
-                                    {telemetry.lux !== null ? telemetry.lux : 'N/A'}
+                                    {telemetry.node1Online && telemetry.lux !== null ? telemetry.lux : 'N/A'}
                                 </p>
 
                                 <p className="t1">
@@ -262,12 +371,12 @@ const AirPollutionDashboard = () => {
                                 <p
                                     className="unit"
                                     id="smk"
-                                    style={{ color: telemetry.gasDetected ? '#c0392b' : '#65b32e' }}
+                                    style={{ color: !telemetry.node1Online ? '#7f8c8d' : (telemetry.gasDetected ? '#c0392b' : '#65b32e') }}
                                 >
-                                    {telemetry.gasDetected === null
+                                    {!telemetry.node1Online
                                         ? 'N/A'
                                         : telemetry.gasDetected
-                                            ? 'DETECTED'
+                                            ? 'WARNING'
                                             : 'NORMAL'}
                                 </p>
 
@@ -275,18 +384,14 @@ const AirPollutionDashboard = () => {
 
                             <div className="box4">
 
-                                <h2>BUZZER</h2>
+                                <h2>GROW LIGHT</h2>
 
                                 <p
                                     className="unit"
-                                    id="buzzer"
-                                    style={{ color: telemetry.buzzer ? '#c0392b' : '#65b32e' }}
+                                    id="growLightDisplay"
+                                    style={{ color: !telemetry.node1Online ? '#7f8c8d' : (telemetry.growLightState === 'ON' ? '#65b32e' : '#95a5a6') }}
                                 >
-                                    {telemetry.buzzer === null
-                                        ? 'N/A'
-                                        : telemetry.buzzer
-                                            ? 'ON'
-                                            : 'OFF'}
+                                    {telemetry.node1Online ? telemetry.growLightState : 'N/A'}
                                 </p>
 
                             </div>
@@ -298,9 +403,9 @@ const AirPollutionDashboard = () => {
                                 <p
                                     className="unit"
                                     id="rain"
-                                    style={{ color: telemetry.rainDetected ? '#2980b9' : '#65b32e' }}
+                                    style={{ color: !telemetry.node1Online ? '#7f8c8d' : (telemetry.rainDetected ? '#2980b9' : '#65b32e') }}
                                 >
-                                    {telemetry.rainDetected === null
+                                    {!telemetry.node1Online
                                         ? 'N/A'
                                         : telemetry.rainDetected
                                             ? 'RAIN DETECTED'
@@ -313,28 +418,38 @@ const AirPollutionDashboard = () => {
 
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                     <h2>DROUGHT & ET₀ LOSS</h2>
-                                    <span style={{
-                                        fontSize: '10px',
-                                        padding: '2px 6px',
-                                        borderRadius: '4px',
-                                        background: etData.droughtRisk === 'SEVERE' ? '#fdeeed' : (etData.droughtRisk === 'MODERATE' ? '#fef3c7' : '#e5f8e5'),
-                                        color: etData.droughtRisk === 'SEVERE' ? '#991b1b' : (etData.droughtRisk === 'MODERATE' ? '#92400e' : '#166534'),
-                                        fontWeight: '700'
-                                    }}>
-                                        {etData.droughtRisk} RISK
-                                    </span>
+                                    {etData ? (
+                                        <span style={{
+                                            fontSize: '10px',
+                                            padding: '2px 6px',
+                                            borderRadius: '4px',
+                                            background: etData.droughtRisk === 'SEVERE' ? '#fdeeed' : (etData.droughtRisk === 'MODERATE' ? '#fef3c7' : '#e5f8e5'),
+                                            color: etData.droughtRisk === 'SEVERE' ? '#991b1b' : (etData.droughtRisk === 'MODERATE' ? '#92400e' : '#166534'),
+                                            fontWeight: '700'
+                                        }}>
+                                            {etData.droughtRisk} RISK
+                                        </span>
+                                    ) : null}
                                 </div>
 
                                 <p
                                     className="unit"
                                     id="et0"
-                                    style={{ fontSize: '24px' }}
+                                    style={{ fontSize: etData ? '24px' : '18px' }}
                                 >
-                                    {etData.et0} <span style={{ fontSize: '14px', color: '#666' }}>mm/day</span>
+                                    {etData ? (
+                                        <>{etData.et0} <span style={{ fontSize: '14px', color: '#666' }}>mm/day</span></>
+                                    ) : (
+                                        'DATA INSUFFICIENT'
+                                    )}
                                 </p>
 
                                 <p className="t1">
-                                    Need: <strong>{etData.prescribedWaterLiters} L/m²</strong> ({etData.recommendedMinutes}m drip)
+                                    {etData ? (
+                                        <>Need: <strong>{etData.prescribedWaterLiters} L/m²</strong> ({etData.recommendedMinutes}m drip)</>
+                                    ) : (
+                                        'Live telemetry required for ET₀ calculation'
+                                    )}
                                 </p>
 
                             </div>
@@ -353,7 +468,7 @@ const AirPollutionDashboard = () => {
                                 className="unit"
                                 id="ct1"
                             >
-                                {telemetry.temperature !== null ? `${telemetry.temperature}` : 'N/A'}
+                                {telemetry.node1Online && telemetry.temperature !== null ? `${telemetry.temperature}` : 'N/A'}
                             </p>
 
                             <p className="t1">
@@ -370,7 +485,7 @@ const AirPollutionDashboard = () => {
                                 className="unit"
                                 id="ct2"
                             >
-                                {stats.avgTemp}
+                                {telemetry.node1Online ? stats.avgTemp : 'N/A'}
                             </p>
 
                             <p className="t1">
@@ -387,7 +502,7 @@ const AirPollutionDashboard = () => {
                                 className="unit"
                                 id="ct3"
                             >
-                                {stats.minTemp}
+                                {telemetry.node1Online ? stats.minTemp : 'N/A'}
                             </p>
 
                             <p className="t1">
@@ -404,7 +519,7 @@ const AirPollutionDashboard = () => {
                                 className="unit"
                                 id="ct4"
                             >
-                                {stats.maxTemp}
+                                {telemetry.node1Online ? stats.maxTemp : 'N/A'}
                             </p>
 
                             <p className="t1">
@@ -425,7 +540,7 @@ const AirPollutionDashboard = () => {
                                 className="unit"
                                 id="ht1"
                             >
-                                {telemetry.humidity !== null ? `${telemetry.humidity}` : 'N/A'}
+                                {telemetry.node1Online && telemetry.humidity !== null ? `${telemetry.humidity}` : 'N/A'}
                             </p>
 
                             <p className="t1">
@@ -442,7 +557,7 @@ const AirPollutionDashboard = () => {
                                 className="unit"
                                 id="ht2"
                             >
-                                {stats.avgHum}
+                                {telemetry.node1Online ? stats.avgHum : 'N/A'}
                             </p>
 
                             <p className="t1">
@@ -459,7 +574,7 @@ const AirPollutionDashboard = () => {
                                 className="unit"
                                 id="ht3"
                             >
-                                {stats.minHum}
+                                {telemetry.node1Online ? stats.minHum : 'N/A'}
                             </p>
 
                             <p className="t1">
@@ -476,7 +591,7 @@ const AirPollutionDashboard = () => {
                                 className="unit"
                                 id="ht4"
                             >
-                                {stats.maxHum}
+                                {telemetry.node1Online ? stats.maxHum : 'N/A'}
                             </p>
 
                             <p className="t1">
@@ -503,52 +618,58 @@ const AirPollutionDashboard = () => {
 
                         <div className="exn">
 
-                            <h2>EXHAUST FAN</h2>
+                            <h2>GROW LIGHT</h2>
 
                             <p
                                 className="exf"
                                 id="exf"
+                                style={{ color: telemetry.growLightState === 'ON' ? '#65b32e' : '#95a5a6' }}
                             >
-                                ON
+                                {telemetry.growLightState}
                             </p>
 
                         </div>
 
                         <div className="modes">
 
-                            <h2>MODES</h2>
+                            <h2>GROW LIGHT CONTROL</h2>
 
                             <div className="m1">
 
                                 <input
                                     type="radio"
-                                    name="mode"
-                                    id="on"
-                                    defaultChecked
+                                    name="growLightControlMode"
+                                    id="light_mode_on"
+                                    checked={telemetry.growLightMode === 'ON'}
+                                    onChange={() => handleLightControl('ON')}
                                 />
 
-                                <label htmlFor="on">
+                                <label htmlFor="light_mode_on">
                                     ON
                                 </label>
 
                                 <input
                                     type="radio"
-                                    name="mode"
-                                    id="off"
+                                    name="growLightControlMode"
+                                    id="light_mode_off"
+                                    checked={telemetry.growLightMode === 'OFF'}
+                                    onChange={() => handleLightControl('OFF')}
                                 />
 
-                                <label htmlFor="off">
+                                <label htmlFor="light_mode_off">
                                     OFF
                                 </label>
 
                                 <input
                                     type="radio"
-                                    name="mode"
-                                    id="auto"
+                                    name="growLightControlMode"
+                                    id="light_mode_auto"
+                                    checked={telemetry.growLightMode === 'AUTO'}
+                                    onChange={() => handleLightControl('AUTO')}
                                 />
 
-                                <label htmlFor="auto">
-                                    AUTOMATIC
+                                <label htmlFor="light_mode_auto">
+                                    AUTO
                                 </label>
 
                             </div>
@@ -667,33 +788,39 @@ const AirPollutionDashboard = () => {
                     <div
                         className="air-alert-banner"
                         style={{
-                            borderColor: telemetry.gasDetected ? '#c0392b' : telemetry.rainDetected ? '#2980b9' : '#65b32e',
-                            background: telemetry.gasDetected
-                                ? 'linear-gradient(135deg, #fbeaea 0%, #f7d5d5 100%)'
-                                : telemetry.rainDetected
-                                    ? 'linear-gradient(135deg, #e9f2fb 0%, #d2e5f8 100%)'
-                                    : 'linear-gradient(135deg, #e5f3df 0%, #d5edd0 100%)'
+                            borderColor: !telemetry.node1Online ? '#7f8c8d' : (telemetry.gasDetected ? '#c0392b' : telemetry.rainDetected ? '#2980b9' : '#65b32e'),
+                            background: !telemetry.node1Online
+                                ? 'linear-gradient(135deg, #f2f4f4 0%, #e5e8e8 100%)'
+                                : telemetry.gasDetected
+                                    ? 'linear-gradient(135deg, #fbeaea 0%, #f7d5d5 100%)'
+                                    : telemetry.rainDetected
+                                        ? 'linear-gradient(135deg, #e9f2fb 0%, #d2e5f8 100%)'
+                                        : 'linear-gradient(135deg, #e5f3df 0%, #d5edd0 100%)'
                         }}
                     >
                         <div className="alert-banner-left">
                             <div className="alert-banner-text">
-                                <h3 style={{ color: telemetry.gasDetected ? '#962d22' : telemetry.rainDetected ? '#1a5276' : '#124500' }}>
-                                    {telemetry.gasDetected
-                                        ? 'CRITICAL ALERT: COMBUSTIBLE GAS / SMOKE DETECTED BY MQ-2'
-                                        : telemetry.rainDetected
-                                            ? 'METEOROLOGICAL ADVISORY: PRECIPITATION DETECTED BY RAIN SENSOR'
-                                            : telemetry.temperature > 35
-                                                ? 'THERMAL WATCH: ELEVATED CANOPY TEMPERATURE'
-                                                : 'SYSTEM HEALTH ALERT: ATMOSPHERIC & SENSOR PARAMETERS NOMINAL'}
+                                <h3 style={{ color: !telemetry.node1Online ? '#566573' : (telemetry.gasDetected ? '#962d22' : telemetry.rainDetected ? '#1a5276' : '#124500') }}>
+                                    {!telemetry.node1Online
+                                        ? 'NODE 1 SENSOR CONNECTION LOST'
+                                        : telemetry.gasDetected
+                                            ? 'CRITICAL ALERT: GAS / SMOKE LEVEL ABOVE THRESHOLD'
+                                            : telemetry.rainDetected
+                                                ? 'METEOROLOGICAL ADVISORY: PRECIPITATION DETECTED'
+                                                : telemetry.temperature > 35
+                                                    ? 'THERMAL WATCH: ELEVATED CANOPY TEMPERATURE'
+                                                    : 'SYSTEM HEALTH ALERT: ATMOSPHERIC PARAMETERS NOMINAL'}
                                 </h3>
-                                <p style={{ color: telemetry.gasDetected ? '#78281f' : telemetry.rainDetected ? '#154360' : '#335522' }}>
-                                    {telemetry.gasDetected
-                                        ? 'MQ-2 sensor reports volatile combustion threshold excursion. Emergency buzzer active and exhaust fan ventilation triggered.'
-                                        : telemetry.rainDetected
-                                            ? 'Active rainfall detected by atmospheric sensor array. Automated louvers and greenhouse ventilation standby.'
-                                            : telemetry.temperature > 35
-                                                ? `DHT22 sensor reports canopy temperature of ${telemetry.temperature}°C. Evapotranspiration loss is ${etData.et0} mm/day. Early morning drip irrigation recommended.`
-                                                : 'DHT22 (Temp/Hum), BH1750 (Lux), and MQ-2 Gas sensors are streaming nominal telemetry within agronomic targets.'}
+                                <p style={{ color: !telemetry.node1Online ? '#566573' : (telemetry.gasDetected ? '#78281f' : telemetry.rainDetected ? '#154360' : '#335522') }}>
+                                    {!telemetry.node1Online
+                                        ? 'Node 1 (Atmospheric) is offline or unreachable. Check hardware power and Wi-Fi connection.'
+                                        : telemetry.gasDetected
+                                            ? 'Gas/smoke level is above the configured threshold. Inspect growing area immediately.'
+                                            : telemetry.rainDetected
+                                                ? 'Active rainfall detected. Review greenhouse louvers and irrigation requirements.'
+                                                : telemetry.temperature > 35
+                                                    ? `Canopy temperature is ${telemetry.temperature}°C. High heat condition detected.`
+                                                    : 'Sensors are streaming nominal telemetry within agronomic targets.'}
                                 </p>
                             </div>
                         </div>
@@ -707,10 +834,10 @@ const AirPollutionDashboard = () => {
                             <span
                                 className="alert-status-pill"
                                 style={{
-                                    background: telemetry.gasDetected ? '#c0392b' : telemetry.rainDetected ? '#2980b9' : '#65b32e'
+                                    background: !telemetry.node1Online ? '#7f8c8d' : (telemetry.gasDetected ? '#c0392b' : telemetry.rainDetected ? '#2980b9' : '#65b32e')
                                 }}
                             >
-                                {telemetry.gasDetected ? 'HAZARD DETECTED' : telemetry.rainDetected ? 'RAIN ACTIVE' : 'ACTIVE MONITOR'}
+                                {!telemetry.node1Online ? 'NODE 1 OFFLINE' : (telemetry.gasDetected ? 'HAZARD DETECTED' : telemetry.rainDetected ? 'RAIN ACTIVE' : 'ACTIVE MONITOR')}
                             </span>
                             <button
                                 className="alert-close-btn"
@@ -732,7 +859,7 @@ const AirPollutionDashboard = () => {
                         </div>
 
                         <div className="events-list">
-                            {airEvents.map((event, idx) => (
+                            {dynamicEvents.map((event, idx) => (
                                 <div className={`event-item level-${event.level}`} key={idx}>
                                     <div className="event-item-top">
                                         <span className="event-icon">{event.icon}</span>
@@ -758,13 +885,13 @@ const AirPollutionDashboard = () => {
                                 <p className="subtext">Automated climate control observations & actions</p>
                             </div>
                             <AudioVoiceButton
-                                text={airRecommendations.join(' ')}
+                                text={dynamicRecommendations.join(' ')}
                                 label="Read All"
                             />
                         </div>
 
                         <ul className="intelligence-list">
-                            {airRecommendations.map((tip, idx) => (
+                            {dynamicRecommendations.map((tip, idx) => (
                                 <li key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                     <span>{tip}</span>
                                     <AudioVoiceButton

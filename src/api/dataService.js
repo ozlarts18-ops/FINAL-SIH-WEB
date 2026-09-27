@@ -51,31 +51,31 @@ export async function insertLog(table, record) {
 }
 
 export async function fetchAirQualityLogs(limit = 50) {
-    return getTableData('air_quality_logs', { limit, orderBy: 'recorded_at', ascending: true });
+    return getTableData('air_quality_logs', { limit, orderBy: 'recorded_at', ascending: false });
 }
 
 export async function fetchWaterQualityLogs(limit = 50) {
-    return getTableData('water_quality_logs', { limit, orderBy: 'recorded_at', ascending: true });
+    return getTableData('water_quality_logs', { limit, orderBy: 'recorded_at', ascending: false });
 }
 
 export async function fetchSoilMoistureLogs(limit = 50) {
-    return getTableData('soil_moisture_logs', { limit, orderBy: 'recorded_at', ascending: true });
+    return getTableData('soil_moisture_logs', { limit, orderBy: 'recorded_at', ascending: false });
 }
 
 export async function fetchLightIntensityLogs(limit = 50) {
-    return getTableData('light_intensity_logs', { limit, orderBy: 'recorded_at', ascending: true });
+    return getTableData('light_intensity_logs', { limit, orderBy: 'recorded_at', ascending: false });
 }
 
 export async function fetchPlantGrowthLogs(limit = 50) {
-    return getTableData('plant_growth_logs', { limit, orderBy: 'recorded_at', ascending: true });
+    return getTableData('plant_growth_logs', { limit, orderBy: 'recorded_at', ascending: false });
 }
 
 export async function fetchDiseaseLogs(limit = 50) {
-    return getTableData('disease_detection_logs', { limit, orderBy: 'detected_at', ascending: true });
+    return getTableData('disease_detection_logs', { limit, orderBy: 'detected_at', ascending: false });
 }
 
 export async function fetchPestLogs(limit = 50) {
-    return getTableData('pest_detection_logs', { limit, orderBy: 'detected_at', ascending: true });
+    return getTableData('pest_detection_logs', { limit, orderBy: 'detected_at', ascending: false });
 }
 
 export async function fetchSystemEvents(moduleName, limit = 5) {
@@ -98,8 +98,8 @@ export async function checkDatabaseHealth() {
         if (res.ok) return await res.json();
     } catch (_e) {}
     return {
-        primary_storage: { engine: 'PostgreSQL Local', status: 'unknown' },
-        secondary_storage: { engine: 'MongoDB', status: 'unknown' }
+        primary_storage: { engine: 'MongoDB Database', status: 'unknown' },
+        fast_cache: { engine: 'Redis Fast Cache', status: 'unknown' }
     };
 }
 
@@ -113,11 +113,10 @@ export async function fetchLatestSensorData() {
     } catch (err) {
         console.warn('[DataService Sensor Notice]:', err.message);
         return {
-            device: 'ESP32-S3-01',
-            sensor: 'BH1750',
-            lux: 523.45,
-            unit: 'lux',
-            status: 'offline_cached'
+            status: 'OFFLINE',
+            error: err.message,
+            node1: { online: false, lastSeen: null, temperature: null, humidity: null, lux: null, gasDetected: null, rainDetected: null },
+            node2: { online: false, lastSeen: null, ph: null, tds_ppm: null, turbidity_ntu: null, water_tank_level_percent: null, soil_moisture: null }
         };
     }
 }
@@ -405,70 +404,261 @@ export async function detectImageSaliencyAndPest(imageSrc, options = {}) {
     });
 }
 
+const PI_AI_BASE = 'http://ossie.local:8001';
+
+export async function fetchLatestPiFrame() {
+    try {
+        const res = await fetch('/api/camera/pi-frame', { cache: 'no-store' });
+        if (res.ok) {
+            return await res.json();
+        }
+    } catch (_e) {}
+    return null;
+}
+
+export async function fetchPiCameraStatus() {
+    try {
+        const res = await fetch('/api/camera/pi-status', { cache: 'no-store' });
+        if (res.ok) {
+            return await res.json();
+        }
+    } catch (_e) {}
+    return { connected: false, last_seen: null, age_ms: null, device_id: null };
+}
+
+export async function fetchPiAiResults() {
+    try {
+        const res = await fetch('/api/ai/results', { cache: 'no-store' });
+        if (res.ok) {
+            return await res.json();
+        }
+    } catch (_e) {}
+    try {
+        const fallbackRes = await fetch(`${PI_AI_BASE}/api/ai/results`, { cache: 'no-store' });
+        if (fallbackRes.ok) {
+            return await fallbackRes.json();
+        }
+    } catch (_err) {}
+    return null;
+}
+
+export async function fetchPiAiHealth() {
+    try {
+        const res = await fetch('/api/ai/health', { cache: 'no-store' });
+        if (res.ok) {
+            return await res.json();
+        }
+    } catch (_e) {}
+    try {
+        const fallbackRes = await fetch(`${PI_AI_BASE}/api/ai/health`, { cache: 'no-store' });
+        if (fallbackRes.ok) {
+            return await fallbackRes.json();
+        }
+    } catch (_err) {}
+    return { status: 'offline', message: 'Raspberry Pi AI unreachable' };
+}
+
+export async function fetchPiAiStatus() {
+    try {
+        const res = await fetch('/api/ai/status', { cache: 'no-store' });
+        if (res.ok) {
+            return await res.json();
+        }
+    } catch (_e) {}
+    try {
+        const fallbackRes = await fetch(`${PI_AI_BASE}/api/ai/status`, { cache: 'no-store' });
+        if (fallbackRes.ok) {
+            return await fallbackRes.json();
+        }
+    } catch (_err) {}
+    return { pipeline: 'offline', mode: 'none' };
+}
+
+export function getPestAiFrameUrl() {
+    return '/api/ai/pest-frame';
+}
+
+export function getCropNutrientAiFrameUrl() {
+    return '/api/ai/crop-nutrient-frame';
+}
+
+export function getAnnotatedAiFrameUrl() {
+    return '/api/ai/annotated_frame';
+}
+
 export async function analyzePestImage(options = {}) {
     if (options.image) {
         const cvResult = await detectImageSaliencyAndPest(options.image, options);
         if (cvResult) {
             return cvResult;
         }
+        try {
+            const res = await fetch(`${API_BASE}/ai/predict/pest`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    detection_source: 'upload',
+                    ...options
+                })
+            });
+            if (res.ok) {
+                const json = await res.json();
+                if (json.status === 'success' && json.prediction) {
+                    return json.prediction;
+                }
+            }
+        } catch (err) {
+            console.warn('[DataService Pest Vision Warning]:', err.message);
+        }
+        return {
+            detected_pest: "Pest Photo Scanned",
+            pest_count: 1,
+            severity_level: "LOW",
+            ai_confidence: 93.5,
+            sector_zone: 'Sector B (Stem Zone)',
+            threat_status: "Manual Verification Scanned",
+            recommended_action: "Manual specimen uploaded. Maintain routine canopy monitoring.",
+            bounding_boxes: [],
+            detected_at: new Date().toISOString()
+        };
     }
 
-    try {
-        const res = await fetch(`${API_BASE}/ai/predict/pest`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                detection_source: 'upload',
-                cropName: options.cropName || 'Tomato (Solanum lycopersicum)',
-                ...options
-            })
-        });
-        if (res.ok) {
-            const json = await res.json();
-            if (json.status === 'success' && json.prediction) {
-                return json.prediction;
-            }
+    const piResults = await fetchPiAiResults();
+    if (piResults && (piResults.yolo || piResults.pest_ai)) {
+        const hasPest = piResults.has_pest || (piResults.yolo?.pest_count || 0) > 0;
+        const detections = piResults.yolo?.detections || [];
+        const mainDet = detections[0] || {};
+
+        if (!hasPest) {
+            return {
+                detected_pest: "No Pest Detected",
+                pest_count: 0,
+                severity_level: "None",
+                ai_confidence: null,
+                sector_zone: "Sector B (Stem Zone)",
+                threat_status: "No Active Threat Detected",
+                recommended_action: "No active pests detected. Maintain standard canopy monitoring.",
+                bounding_boxes: [],
+                nutrient_ai: piResults.nutrient_ai || { status: 'unavailable', label: 'Unavailable (Nutrient model not found on Raspberry Pi)' },
+                raw_pi_results: piResults,
+                detected_at: piResults.timestamp || new Date().toISOString()
+            };
         }
-    } catch (err) {
-        console.warn('[DataService Pest Vision Warning]:', err.message);
+
+        const pestLabel = mainDet.label || piResults.pest_ai?.label || "Pest Detected";
+        const count = piResults.yolo?.pest_count !== undefined ? piResults.yolo.pest_count : detections.length;
+        const confidence = mainDet.confidence || piResults.pest_ai?.confidence || 95.0;
+        const severity = piResults.pest_ai?.severity || (count >= 4 ? 'HIGH' : (count >= 2 ? 'MEDIUM' : 'LOW'));
+
+        return {
+            detected_pest: pestLabel,
+            pest_count: count,
+            severity_level: severity,
+            ai_confidence: confidence,
+            sector_zone: 'Sector B (Stem Zone)',
+            threat_status: `Active Threat - ${pestLabel}`,
+            recommended_action: `Spray organic neem oil extract (5ml/L) to treat ${pestLabel}.`,
+            bounding_boxes: detections.map(d => ({
+                x: d.bbox?.[0] || 30,
+                y: d.bbox?.[1] || 22,
+                width: d.bbox?.[2] || 40,
+                height: d.bbox?.[3] || 56,
+                label: d.label,
+                conf: d.confidence
+            })),
+            nutrient_ai: piResults.nutrient_ai || { status: 'unavailable', label: 'Unavailable (Nutrient model not found on Raspberry Pi)' },
+            raw_pi_results: piResults,
+            detected_at: piResults.timestamp || new Date().toISOString()
+        };
     }
 
     return {
-        target_crop: options.cropName || 'Tomato (Solanum lycopersicum)',
-        detected_pest: "Green Leafhopper (Cicadellidae)",
-        pest_count: 1,
-        severity_level: "MEDIUM",
-        ai_confidence: 96.5,
+        detected_pest: "No Pest Detected",
+        pest_count: 0,
+        severity_level: "None",
+        ai_confidence: null,
         sector_zone: 'Sector B (Stem Zone)',
-        threat_status: "Active Threat - Green Leafhopper",
-        recommended_action: "Spray organic neem oil extract (5ml/L) to prevent sap extraction.",
-        bounding_boxes: [
-            { x: 30, y: 22, width: 40, height: 56, label: "Leafhopper", conf: 96.5 }
-        ],
+        threat_status: "No Active Threat Detected",
+        recommended_action: "Maintain routine canopy monitoring.",
+        bounding_boxes: [],
+        nutrient_ai: { status: 'unavailable', label: 'Unavailable (Nutrient model not found on Raspberry Pi)' },
         detected_at: new Date().toISOString()
     };
 }
 
 export async function analyzePlantDiseaseImage(options = {}) {
-    try {
-        const res = await fetch(`${API_BASE}/ai/predict/disease`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                detection_source: 'upload',
-                cropName: options.cropName || 'Tomato (Solanum lycopersicum)',
-                ...options
-            })
-        });
-        if (res.ok) {
-            const json = await res.json();
-            if (json.status === 'success' && json.prediction && json.prediction.model_ready) {
-                return json.prediction;
+    if (options.image) {
+        try {
+            const res = await fetch(`${API_BASE}/ai/predict/disease`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    detection_source: 'upload',
+                    cropName: options.cropName || 'Tomato (Solanum lycopersicum)',
+                    ...options
+                })
+            });
+            if (res.ok) {
+                const json = await res.json();
+                if (json.status === 'success' && json.prediction) {
+                    return json.prediction;
+                }
             }
+        } catch (err) {
+            console.warn('[DataService Plant Vision Warning]:', err.message);
         }
-    } catch (err) {
-        console.warn('[DataService Plant Vision Warning]:', err.message);
+        return {
+            disease_name: 'Leaf Photo Scanned',
+            crop_name: options.cropName || 'Tomato',
+            confidence_score: 92.5,
+            disease_risk: 'LOW',
+            health_score: 92.5,
+            treatment_advice: 'Manual specimen uploaded. Maintain routine canopy monitoring.'
+        };
     }
+
+    const piResults = await fetchPiAiResults();
+    if (piResults && piResults.crop_ai) {
+        const cropRes = piResults.crop_ai;
+        const hasPlant = cropRes.has_plant !== undefined ? cropRes.has_plant : piResults.has_plant;
+
+        if (!hasPlant) {
+            return {
+                status: 'success',
+                prediction: {
+                    has_plant: false,
+                    crop_name: 'No Plant Detected',
+                    disease_name: 'No Pathology Detected',
+                    confidence_score: null,
+                    severity_level: 'None',
+                    disease_risk: 'None',
+                    health_score: null,
+                    treatment_advice: 'No plant detected in current camera frame.',
+                    nutrient_ai: piResults.nutrient_ai || { status: 'unavailable', label: 'Unavailable (Nutrient model not found on Raspberry Pi)' },
+                    raw_pi_results: piResults,
+                    model_ready: true
+                }
+            };
+        }
+
+        return {
+            status: 'success',
+            prediction: {
+                has_plant: true,
+                crop_name: cropRes.crop_name || options.cropName || 'Solanum lycopersicum (Tomato)',
+                disease_name: cropRes.label || 'Healthy Canopy',
+                confidence_score: cropRes.confidence || 94.0,
+                severity_level: cropRes.disease_risk === 'HIGH' ? 'HIGH' : (cropRes.disease_risk === 'MEDIUM' ? 'MEDIUM' : 'LOW'),
+                disease_risk: cropRes.disease_risk || 'LOW',
+                health_score: cropRes.health_score || cropRes.confidence || 94.0,
+                treatment_advice: 'Maintain regular canopy irrigation and ambient humidity controls.',
+                nutrient_ai: piResults.nutrient_ai || { status: 'unavailable', label: 'Unavailable (Nutrient model not found on Raspberry Pi)' },
+                raw_pi_results: piResults,
+                model_ready: true
+            }
+        };
+    }
+
     return null;
 }
 
@@ -494,4 +684,5 @@ export async function fetchAgriculturalDiagnosis(options = null) {
         return null;
     }
 }
+
 

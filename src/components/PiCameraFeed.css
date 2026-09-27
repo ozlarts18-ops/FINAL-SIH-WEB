@@ -1,0 +1,206 @@
+.pi-camera-panel {
+    border: 2px solid #cbdcc3;
+    border-radius: 0;
+    padding: 18px;
+    background-color: #f4f8f1;
+    transition: border-color 0.25s, transform 0.25s;
+    display: flex;
+    flex-direction: column;
+}
+
+.pi-camera-panel:hover {
+    border-color: #65b32e;
+    transform: translateY(-2px);
+}
+
+.pi-cam-title-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.pi-cam-title-group h2 {
+    font-size: 13px;
+    letter-spacing: 0.4px;
+    color: #40533b;
+    margin: 0;
+    font-weight: 700;
+}
+
+.pi-status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 10px;
+    border-radius: 9999px;
+    font-size: 11px;
+    font-family: inherit;
+    line-height: 1.2;
+    transition: all 0.25s ease;
+    user-select: none;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.pi-status-badge.badge-online {
+    background: #ecfdf5;
+    border: 1px solid #10b981;
+    color: #065f46;
+}
+
+.pi-status-badge.badge-offline {
+    background: #fef2f2;
+    border: 1px solid #f87171;
+    color: #991b1b;
+}
+
+.pi-pulse-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.pi-pulse-dot.dot-online {
+    background-color: #10b981;
+    box-shadow: 0 0 6px #10b981;
+    animation: piDotPulse 2s infinite;
+}
+
+.pi-pulse-dot.dot-offline {
+    background-color: #ef4444;
+    box-shadow: 0 0 4px rgba(239, 68, 68, 0.6);
+}
+
+@keyframes piDotPulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+    }
+    70% {
+        box-shadow: 0 0 0 6px rgba(16, 185, 129, 0);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+    }
+}
+
+.pi-status-info {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.pi-state-label strong {
+    font-weight: 700;
+}
+
+.pi-ip-label {
+    opacity: 0.9;
+    font-family: monospace;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.pi-camera-feed-container {
+    aspect-ratio: 16 / 9;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    background-color: #1e251c;
+    position: relative;
+    border-radius: 0;
+    min-height: 200px;
+}
+
+.pi-camera-frame-wrapper {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: #0f172a;
+}
+
+.pi-camera-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.pi-cam-hud-overlay {
+    position: absolute;
+    bottom: 8px;
+    left: 8px;
+    right: 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    pointer-events: none;
+    z-index: 5;
+}
+
+.pi-cam-hud-pill,
+.pi-cam-id-pill {
+    background: rgba(15, 23, 42, 0.85);
+    color: #4ade80;
+    padding: 4px 8px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    border: 1px solid rgba(74, 222, 128, 0.4);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    backdrop-filter: blur(2px);
+}
+
+.pi-cam-hud-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background-color: #22c55e;
+    box-shadow: 0 0 6px #22c55e;
+    animation: piDotPulse 1.6s infinite;
+}
+
+.pi-camera-offline-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 24px 16px;
+    text-align: center;
+    color: #94a3b8;
+    gap: 8px;
+    width: 100%;
+    height: 100%;
+}
+
+.offline-icon-wrapper {
+    color: #ef4444;
+    opacity: 0.85;
+}
+
+.offline-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: #e2e8f0;
+    margin: 0;
+}
+
+.offline-subtext {
+    font-size: 11px;
+    color: #94a3b8;
+    margin: 0;
+}
+
+.offline-subtext code {
+    background: rgba(255, 255, 255, 0.1);
+    padding: 2px 6px;
+    border-radius: 3px;
+    color: #38bdf8;
+    font-family: monospace;
+}
